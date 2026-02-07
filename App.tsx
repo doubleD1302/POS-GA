@@ -9,30 +9,45 @@ import { Button, Input, Select, Card, Modal } from './components/ui';
 import { Partner, PartnerType, BankSettings, Invoice, CashTransaction, PreOrder, PaymentMethod, Product } from './types';
 
 // --- LOGIN COMPONENT ---
+// --- LOGIN COMPONENT (ĐÃ SỬA ĐỂ KÍCH HOẠT ĐỒNG BỘ) ---
 function LoginScreen({ onLogin }: { onLogin: () => void }) {
   const [code, setCode] = useState('');
   const [isConfirming, setIsConfirming] = useState(false);
+  const [isLoading, setIsLoading] = useState(false); // Thêm trạng thái loading
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     if (code.length !== 6 || isNaN(Number(code))) {
       alert("Vui lòng nhập mã doanh nghiệp gồm 6 chữ số");
       return;
     }
 
-    const exists = db.checkBusinessExists(code);
-    if (!exists) {
-      setIsConfirming(true);
-    } else {
-      db.setBusinessId(code);
-      db.initStartDate(); // Initialize start date on login
-      onLogin();
+    setIsLoading(true); // Bắt đầu xoay xoay
+
+    try {
+      // QUAN TRỌNG: Gọi hàm này để tải dữ liệu từ Supabase về máy
+      await db.init(code); 
+      
+      const exists = db.checkBusinessExists(code);
+      if (!exists) {
+        setIsConfirming(true); // Nếu tải về mà vẫn chưa có thì hỏi tạo mới
+      } else {
+        // Đã có dữ liệu -> Vào luôn
+        onLogin();
+      }
+    } catch (error) {
+      console.error(error);
+      alert("Lỗi kết nối! Vui lòng kiểm tra mạng.");
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const confirmCreate = () => {
-    db.setBusinessId(code);
-    db.initStartDate(); // Initialize start date on creation
+  const confirmCreate = async () => {
+    setIsLoading(true);
+    await db.init(code); // Khởi tạo kết nối cho shop mới
+    db.initStartDate(); 
     onLogin();
+    setIsLoading(false);
   };
 
   if (isConfirming) {
@@ -41,11 +56,13 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
         <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl">
           <h2 className="text-xl font-bold text-gray-800 mb-2">Doanh nghiệp mới?</h2>
           <p className="text-gray-600 mb-6 text-sm">
-            Mã <b>{code}</b> chưa tồn tại trên hệ thống. Bạn có muốn tạo dữ liệu mới cho doanh nghiệp này không?
+            Mã <b>{code}</b> chưa tồn tại. Bạn có muốn tạo mới không?
           </p>
           <div className="flex gap-3">
              <Button variant="secondary" className="flex-1" onClick={() => setIsConfirming(false)}>Quay lại</Button>
-             <Button className="flex-1" onClick={confirmCreate}>Tạo mới</Button>
+             <Button className="flex-1" onClick={confirmCreate} disabled={isLoading}>
+               {isLoading ? "Đang tạo..." : "Tạo mới"}
+             </Button>
           </div>
         </div>
       </div>
@@ -69,8 +86,12 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
           type="tel"
           autoFocus
         />
-        <Button className="w-full py-3 text-lg" onClick={handleLogin}>
-          Truy cập
+        <Button 
+          className="w-full py-3 text-lg" 
+          onClick={handleLogin}
+          disabled={isLoading}
+        >
+          {isLoading ? "Đang đồng bộ..." : "Truy cập"}
         </Button>
         <p className="text-xs text-center text-gray-400 mt-4">
           Mỗi mã 6 số tương ứng với một tài khoản riêng biệt.
