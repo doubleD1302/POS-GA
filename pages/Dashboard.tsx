@@ -5,7 +5,8 @@ import { DashboardStats } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import { StatCard, Button, Card } from '../components/ui';
 
-export default function Dashboard({ navigate }: { navigate: (page: string) => void }) {
+// 👇 1. CẬP NHẬT DÒNG NÀY (Thêm onLogout vào props)
+export default function Dashboard({ navigate, onLogout }: { navigate: (page: string) => void, onLogout: () => void }) {
   const [stats, setStats] = useState<DashboardStats | null>(null);
 
   useEffect(() => {
@@ -16,21 +17,29 @@ export default function Dashboard({ navigate }: { navigate: (page: string) => vo
   if (!stats) return <div className="p-4">Đang tải...</div>;
 
   const pieData = [
-    { name: 'Thực thu', value: stats.revenueToday, color: '#22c55e' }, // Green
-    { name: 'Chi nhập gà', value: stats.importToday, color: '#ef4444' } // Red
+    { name: 'Thực thu', value: stats.revenueToday, color: '#22c55e' },
+    { name: 'Chi nhập gà', value: stats.importToday, color: '#ef4444' }
   ];
 
-  // If both are 0, show a placeholder
   const hasData = pieData.some(d => d.value > 0);
 
   return (
     <div className="space-y-4 pb-20">
-      <header className="flex justify-between items-center mb-4">
+      <header className="flex justify-between items-start mb-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Tổng quan</h1>
           <p className="text-sm text-gray-500">{new Date().toLocaleDateString('vi-VN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
         </div>
+        
+        {/* 👇 2. THÊM NÚT ĐỔI TÀI KHOẢN Ở ĐÂY */}
+        <button 
+          onClick={onLogout}
+          className="bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1.5 rounded-lg text-xs font-bold border border-gray-200 transition-colors"
+        >
+          Đổi TK ↻
+        </button>
       </header>
+
 
       {/* Primary KPI */}
       <div className="grid grid-cols-2 gap-3">

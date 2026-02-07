@@ -80,6 +80,9 @@ export interface InvoiceLine {
   unit: Unit;
   price: number;
   amount: number;
+  gross?: number;    
+  tare?: number;     
+  details?: string;  
 }
 
 export interface Invoice {

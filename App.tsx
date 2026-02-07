@@ -41,7 +41,7 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
         <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl">
           <h2 className="text-xl font-bold text-gray-800 mb-2">Doanh nghiệp mới?</h2>
           <p className="text-gray-600 mb-6 text-sm">
-            Mã <b>{code}</b> chưa tồn tại trên thiết bị này. Bạn có muốn tạo dữ liệu mới cho doanh nghiệp này không?
+            Mã <b>{code}</b> chưa tồn tại trên hệ thống. Bạn có muốn tạo dữ liệu mới cho doanh nghiệp này không?
           </p>
           <div className="flex gap-3">
              <Button variant="secondary" className="flex-1" onClick={() => setIsConfirming(false)}>Quay lại</Button>
@@ -80,32 +80,33 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
   );
 }
 
-// --- IMPORT PAGE ---
+// --- IMPORT PAGE (PHIÊN BẢN NÂNG CẤP HÓA ĐƠN) ---
+// --- IMPORT PAGE (ĐÃ FIX LỖI NÚT THÊM & TÍNH BÌ) ---
 function ImportPage({ navigate }: { navigate: (p: string) => void }) {
   const [suppliers, setSuppliers] = useState<Partner[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [supplierId, setSupplierId] = useState('');
   
-  // Ticket Data (List of finalized items)
-  const [ticketItems, setTicketItems] = useState<{pid: string, pName: string, kg: number, con: number, price: number, total: number}[]>([]);
+  // Danh sách hàng trong phiếu
+  const [ticketItems, setTicketItems] = useState<{
+      pid: string, pName: string, kg: number, con: number, price: number, total: number,
+      gross: number, tare: number, details: string
+  }[]>([]);
 
-  // --- WEIGHING CALCULATOR STATE ---
+  // State bàn cân
   const [currentPid, setCurrentPid] = useState('');
-  
-  // Changed: Store object {w: weight, c: count}
-  const [weightList, setWeightList] = useState<{w: number, c: number}[]>([]);
+  // w: cân, t: bì, c: con
+  const [weightList, setWeightList] = useState<{w: number, t: number, c: number}[]>([]); 
   
   const [currentWeightInput, setCurrentWeightInput] = useState('');
-  const [currentCountInput, setCurrentCountInput] = useState(''); // New input for count per entry
-  
-  const [tareWeight, setTareWeight] = useState(''); // Tổng bì
+  const [currentTareInput, setCurrentTareInput] = useState(''); 
+  const [currentCountInput, setCurrentCountInput] = useState(''); 
   const [currentPrice, setCurrentPrice] = useState('');
   
   // Modals
   const [isSupModalOpen, setIsSupModalOpen] = useState(false);
   const [newSupName, setNewSupName] = useState('');
   const [newSupPhone, setNewSupPhone] = useState('');
-  
   const [isProdModalOpen, setIsProdModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [prodName, setProdName] = useState('');
@@ -129,21 +130,28 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
     setProducts(db.getProducts());
   }
 
-  // --- CALCULATOR LOGIC ---
+  // --- 1. LOGIC TÍNH TOÁN (Tự động tính mỗi khi weightList thay đổi) ---
+  const totalGrossWeight = weightList.reduce((a, b) => a + b.w, 0);
+  const totalTare = weightList.reduce((a, b) => a + (b.t || 0), 0);
+  const totalCon = weightList.reduce((a, b) => a + (b.c || 0), 0);
+  const netWeight = Math.max(0, totalGrossWeight - totalTare);
+  
+  // Hàm thêm mã cân vào danh sách tạm
   const handleAddWeight = () => {
     const w = parseFloat(currentWeightInput);
-    const c = parseInt(currentCountInput); // Parse count
+    const t = parseFloat(currentTareInput) || 0; 
+    const c = parseInt(currentCountInput) || 0;
 
     if (isNaN(w) || w <= 0) {
-      alert("Vui lòng nhập số cân");
+      alert("Vui lòng nhập số cân!");
       weightInputRef.current?.focus();
       return;
     }
-    // Allow c to be 0 or empty if user doesn't want to track count strictly, but usually required
-    const countVal = isNaN(c) ? 0 : c;
 
-    setWeightList([...weightList, { w, c: countVal }]);
+    setWeightList([...weightList, { w, t, c }]);
+    // Reset ô nhập để nhập tiếp
     setCurrentWeightInput('');
+    setCurrentTareInput('');
     setCurrentCountInput('');
     weightInputRef.current?.focus();
   };
@@ -154,35 +162,36 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
     setWeightList(n);
   };
 
-  const totalGrossWeight = weightList.reduce((a, b) => a + b.w, 0);
-  const totalCon = weightList.reduce((a, b) => a + b.c, 0); // Calculated Total Con
-  
-  const totalTare = parseFloat(tareWeight) || 0;
-  const netWeight = Math.max(0, totalGrossWeight - totalTare);
-  const estimatedCost = netWeight * (parseFloat(currentPrice) || 0);
-
+  // --- 2. HÀM THÊM VÀO PHIẾU (QUAN TRỌNG) ---
   const handleAddItemToTicket = () => {
-    if (!currentPid) return alert("Chọn loại gà");
-    if (netWeight <= 0) return alert("Khối lượng thực phải lớn hơn 0");
-    if (!currentPrice) return alert("Chưa nhập giá");
+    // Validate dữ liệu
+    if (!currentPid) return alert("Chưa chọn loại gà!");
+    if (weightList.length === 0) return alert("Chưa nhập mã cân nào!");
+    if (netWeight <= 0) return alert("Khối lượng thực bằng 0!");
+    if (!currentPrice) return alert("Chưa nhập giá nhập!");
 
     const prod = products.find(p => p.id === currentPid);
     
+    // Tạo chuỗi chi tiết: "50-2, 30-1"
+    const detailsStr = weightList.map(i => `${i.w}${i.t > 0 ? `(-${i.t}b)` : ''}`).join(' + ');
+
     setTicketItems([...ticketItems, {
       pid: currentPid,
       pName: prod ? prod.name : 'Unknown',
       kg: netWeight,
       con: totalCon,
       price: parseFloat(currentPrice),
-      total: estimatedCost
+      total: netWeight * parseFloat(currentPrice),
+      gross: totalGrossWeight,
+      tare: totalTare,
+      details: detailsStr
     }]);
 
-    // Reset Calculator
+    // Reset bàn cân sau khi thêm xong
     setWeightList([]);
-    setTareWeight('');
-    // Keep price and pid for convenience
-    // setCurrentPid(''); 
+    // Giữ nguyên loại gà và giá, chỉ reset các ô nhập
     setCurrentWeightInput('');
+    setCurrentTareInput('');
     setCurrentCountInput('');
   };
 
@@ -197,84 +206,51 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
     if(ticketItems.length === 0) return alert('Chưa có hàng hoá nào');
 
     await db.createPurchase(supplierId, new Date().toISOString().split('T')[0], 
-      ticketItems.map(i => ({ productId: i.pid, qtyKg: i.kg, qtyCon: i.con, price: i.price })),
+      ticketItems.map(i => ({ 
+        productId: i.pid, 
+        qtyKg: i.kg, 
+        qtyCon: i.con, 
+        price: i.price,
+        gross: i.gross,
+        tare: i.tare,
+        details: i.details
+      })),
       0, 0
     );
-    alert('Nhập hàng thành công');
+    alert('Đã lưu phiếu nhập thành công!');
     navigate('inventory');
   }
 
-  // --- SUPPLIER & PRODUCT MODALS ---
+  // Helpers
   const handleAddSupplier = () => {
     if (!newSupName) return;
-    const newSup: Partner = {
-       id: `s-${Date.now()}`,
-       name: newSupName,
-       phone: newSupPhone,
-       type: PartnerType.SUPPLIER,
-       debt: 0
-    };
-    db.savePartner(newSup);
-    loadSuppliers();
-    setSupplierId(newSup.id);
-    setIsSupModalOpen(false);
-    setNewSupName('');
-    setNewSupPhone('');
+    const newSup: Partner = { id: `s-${Date.now()}`, name: newSupName, phone: newSupPhone, type: PartnerType.SUPPLIER, debt: 0 };
+    db.savePartner(newSup); loadSuppliers(); setSupplierId(newSup.id); setIsSupModalOpen(false); setNewSupName(''); setNewSupPhone('');
   };
 
   const handleDeleteSupplier = () => {
      if (!supplierId) return;
      if (window.confirm("Xoá nhà cung cấp này?")) {
         db.deletePartner(supplierId);
-        setTimeout(() => {
-            const list = db.getPartners(PartnerType.SUPPLIER);
-            setSuppliers(list);
-            setSupplierId(list.length > 0 ? list[0].id : '');
-        }, 50);
+        setTimeout(() => { const list = db.getPartners(PartnerType.SUPPLIER); setSuppliers(list); setSupplierId(list.length > 0 ? list[0].id : ''); }, 50);
      }
   }
 
   const handleOpenProdModal = (pid?: string) => {
     if (pid) {
       const p = products.find(x => x.id === pid);
-      if (p) {
-        setEditingProduct(p);
-        setProdName(p.name);
-        setProdPrice(p.defaultPrice.toString());
-      }
-    } else {
-      setEditingProduct(null);
-      setProdName('');
-      setProdPrice('');
-    }
+      if (p) { setEditingProduct(p); setProdName(p.name); setProdPrice(p.defaultPrice.toString()); }
+    } else { setEditingProduct(null); setProdName(''); setProdPrice(''); }
     setIsProdModalOpen(true);
   }
 
   const handleSaveProduct = () => {
      if (!prodName) return;
-     const newProd: Product = {
-        id: editingProduct ? editingProduct.id : `p-${Date.now()}`,
-        name: prodName,
-        defaultPrice: Number(prodPrice) || 0,
-        standardCost: editingProduct?.standardCost 
-     };
-     db.saveProduct(newProd);
-     loadProducts();
-     // If we were adding a new product, auto select it
-     if (!editingProduct) setCurrentPid(newProd.id);
-     setIsProdModalOpen(false);
+     const newProd: Product = { id: editingProduct ? editingProduct.id : `p-${Date.now()}`, name: prodName, defaultPrice: Number(prodPrice) || 0, standardCost: editingProduct?.standardCost };
+     db.saveProduct(newProd); loadProducts(); if (!editingProduct) setCurrentPid(newProd.id); setIsProdModalOpen(false);
   }
 
-  // Select product handler to auto-fill import price if available
-  const handleSelectProduct = (pid: string) => {
-    setCurrentPid(pid);
-    const p = products.find(x => x.id === pid);
-    if (p && p.standardCost) {
-      setCurrentPrice(p.standardCost.toString());
-    } else {
-      setCurrentPrice('');
-    }
-  }
+  const currentSupplier = suppliers.find(s => s.id === supplierId);
 
   return (
     <div className="pb-24">
@@ -286,17 +262,11 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
       <Card className="mb-4 bg-blue-50 border-blue-100">
          <div className="flex justify-between items-center mb-1">
             <label className="text-xs font-bold text-blue-800 uppercase">Nhà Cung Cấp</label>
-            {supplierId && (
-                <button onClick={handleDeleteSupplier} className="text-red-400 text-xs">Xoá</button>
-            )}
+            {supplierId && <button onClick={handleDeleteSupplier} className="text-red-400 text-xs">Xoá</button>}
          </div>
          <div className="flex gap-2">
            <div className="flex-1">
-              <select 
-                 value={supplierId} 
-                 onChange={(e) => setSupplierId(e.target.value)}
-                 className="w-full px-3 py-3 bg-white border border-blue-200 rounded-lg text-gray-800 font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm"
-              >
+              <select value={supplierId} onChange={(e) => setSupplierId(e.target.value)} className="w-full px-3 py-3 bg-white border border-blue-200 rounded-lg text-gray-800 font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm">
                  {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
            </div>
@@ -307,108 +277,70 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
       {/* 2. WEIGHING CALCULATOR */}
       <Card className="mb-6 border-brand-200 shadow-md">
         <div className="flex justify-between items-center mb-3">
-            <h3 className="font-bold text-brand-800 flex items-center gap-2">
-                <span>⚖️ Bàn Cân</span>
-            </h3>
-            <div className="text-xs text-gray-500 italic">Nhập từng mã cân + số con</div>
+            <h3 className="font-bold text-brand-800 flex items-center gap-2"><span>⚖️ Bàn Cân (Chi tiết)</span></h3>
+            <div className="text-xs text-gray-500 italic">Nhập: Cân tổng - Bì - Số con</div>
         </div>
 
         {/* Product Select */}
         <div className="flex gap-2 mb-3">
              <div className="flex-1">
-                <select 
-                  className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500" 
-                  value={currentPid} 
-                  onChange={e => handleSelectProduct(e.target.value)}
-                >
+                <select className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500" value={currentPid} onChange={e => {setCurrentPid(e.target.value); const p = products.find(x => x.id === e.target.value); if(p?.standardCost) setCurrentPrice(p.standardCost.toString()); else setCurrentPrice('');}}>
                   <option value="">-- Chọn Loại Gà --</option>
                   {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
              </div>
-             {currentPid ? (
-                <button onClick={() => handleOpenProdModal(currentPid)} className="px-3 bg-gray-100 text-gray-600 border border-gray-300 rounded-lg">✎</button>
-             ) : (
-                <button onClick={() => handleOpenProdModal()} className="px-3 bg-brand-600 text-white rounded-lg font-bold">+</button>
-             )}
+             <button onClick={() => handleOpenProdModal(currentPid)} className={`px-3 rounded-lg border ${currentPid ? 'bg-gray-100' : 'bg-brand-600 text-white font-bold'}`}>{currentPid ? '✎' : '+'}</button>
         </div>
 
-        {/* Weighing Input - SPLIT INTO WEIGHT AND COUNT */}
+        {/* Weighing Input - 3 Ô NHẬP LIỆU */}
         <div className="flex gap-2 mb-3 items-end">
+            <div className="flex-[2]">
+                 <label className="text-[10px] text-gray-500 font-bold ml-1">TỔNG KG</label>
+                 <input ref={weightInputRef} type="number" placeholder="0.0" className="w-full px-2 py-2 text-lg font-bold text-gray-800 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none" value={currentWeightInput} onChange={e => setCurrentWeightInput(e.target.value)} />
+            </div>
             <div className="flex-1">
-                 <label className="text-[10px] text-gray-500 font-bold ml-1">SỐ KG</label>
-                 <input 
-                    ref={weightInputRef}
-                    type="number" 
-                    placeholder="0.0" 
-                    className="w-full px-3 py-2 text-lg font-bold text-gray-800 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none"
-                    value={currentWeightInput}
-                    onChange={e => setCurrentWeightInput(e.target.value)}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter') countInputRef.current?.focus();
-                    }}
-                />
+                 <label className="text-[10px] text-red-500 font-bold ml-1">BÌ (KG)</label>
+                 <input type="number" placeholder="0" className="w-full px-2 py-2 text-lg font-bold text-red-600 bg-red-50 border border-red-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:outline-none" value={currentTareInput} onChange={e => setCurrentTareInput(e.target.value)} />
             </div>
-            <div className="w-24">
-                 <label className="text-[10px] text-gray-500 font-bold ml-1">SỐ CON</label>
-                 <input 
-                    ref={countInputRef}
-                    type="number" 
-                    placeholder="0" 
-                    className="w-full px-3 py-2 text-lg font-bold text-center text-gray-800 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none"
-                    value={currentCountInput}
-                    onChange={e => setCurrentCountInput(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleAddWeight()}
-                />
+            <div className="flex-1">
+                 <label className="text-[10px] text-gray-500 font-bold ml-1">CON</label>
+                 <input ref={countInputRef} type="number" placeholder="0" className="w-full px-2 py-2 text-lg font-bold text-center text-gray-800 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none" value={currentCountInput} onChange={e => setCurrentCountInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleAddWeight(); }} />
             </div>
-            <Button onClick={handleAddWeight} className="h-[46px] w-14 flex items-center justify-center">↵</Button>
+            {/* Nút Enter thêm mã cân */}
+            <Button onClick={handleAddWeight} className="h-[46px] w-12 flex items-center justify-center">↵</Button>
         </div>
 
-        {/* Weight List (Chips) */}
+        {/* List Chips */}
         {weightList.length > 0 && (
             <div className="flex flex-wrap gap-2 mb-4 p-2 bg-gray-50 rounded-lg border border-gray-100 max-h-32 overflow-y-auto">
                 {weightList.map((item, i) => (
                     <span key={i} className="inline-flex items-center px-2 py-1 rounded-md text-sm font-medium bg-white border border-gray-200 shadow-sm text-gray-700">
-                        {item.w}kg <span className="text-gray-400 text-xs mx-1">({item.c}c)</span>
-                        <button onClick={() => handleRemoveWeight(i)} className="ml-1 text-red-400 hover:text-red-600">×</button>
+                        {item.w} <span className="text-red-400 text-xs mx-1">-{item.t}bì</span>
+                        <span className="text-gray-400 text-xs">({item.c}c)</span>
+                        <button onClick={() => handleRemoveWeight(i)} className="ml-1 text-red-500 font-bold">×</button>
                     </span>
                 ))}
             </div>
         )}
 
         {/* Calculation Grid */}
-        <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-3">
+        <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-2">
             <div className="flex justify-between items-center text-sm">
                 <span className="text-gray-500">Tổng cân (Gross):</span>
                 <span className="font-bold text-gray-800">{totalGrossWeight.toFixed(2)} kg</span>
             </div>
-            <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-500">Trừ Bì (Lồng):</span>
-                <div className="w-24">
-                    <input 
-                        type="number" 
-                        className="w-full px-2 py-1 text-right text-sm font-bold text-red-600 bg-white border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
-                        placeholder="0"
-                        value={tareWeight}
-                        onChange={e => setTareWeight(e.target.value)}
-                    />
-                </div>
+            <div className="flex justify-between items-center text-sm">
+                <span className="text-gray-500">Tổng trừ bì:</span>
+                <span className="font-bold text-red-500">-{totalTare.toFixed(2)} kg</span>
             </div>
             <div className="border-t border-gray-300 pt-2 flex justify-between items-center">
-                <span className="font-bold text-brand-700">Thực Nhập (Net):</span>
-                <span className="text-xl font-bold text-brand-600">{netWeight.toFixed(2)} kg</span>
+                <span className="font-bold text-brand-700 text-lg">Thực Nhập (Net):</span>
+                <span className="text-2xl font-bold text-brand-600">{netWeight.toFixed(2)} kg</span>
             </div>
         </div>
 
-        {/* Price & Count */}
         <div className="grid grid-cols-2 gap-3 mt-4">
-             <Input 
-                label="Giá nhập / kg" 
-                type="number" 
-                value={currentPrice} 
-                onChange={(e: any) => setCurrentPrice(e.target.value)} 
-                className="font-bold"
-                placeholder="0"
-             />
+             <Input label="Giá nhập / kg" type="number" value={currentPrice} onChange={(e: any) => setCurrentPrice(e.target.value)} className="font-bold" placeholder="0" />
              <div className="flex flex-col">
                 <label className="text-sm font-bold text-gray-700 mb-1">Tổng số con</label>
                 <div className="w-full px-3 py-2 bg-gray-100 border border-gray-200 rounded-lg text-gray-800 font-bold">
@@ -416,53 +348,71 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
                 </div>
              </div>
         </div>
-
+        
         <div className="mt-4 pt-2 border-t border-dashed border-gray-200">
-             <div className="flex justify-between items-center mb-2">
-                 <span className="text-sm font-semibold text-gray-600">Thành tiền lô này:</span>
-                 <span className="text-lg font-bold text-blue-600">{formatCurrency(estimatedCost)}</span>
-             </div>
-             <Button onClick={handleAddItemToTicket} className="w-full" disabled={netWeight <= 0}>
-                ⬇ Thêm Vào Phiếu
-             </Button>
+             {/* Nút bấm ĐÃ FIX: Gọi trực tiếp hàm handleAddItemToTicket */}
+             <Button onClick={handleAddItemToTicket} className="w-full py-3 text-lg">⬇ Thêm Vào Phiếu</Button>
         </div>
       </Card>
 
       {/* 3. TICKET PREVIEW */}
       {ticketItems.length > 0 && (
-          <div className="bg-white rounded-xl shadow border border-gray-200 overflow-hidden mb-20">
-             <div className="bg-gray-100 px-4 py-2 border-b border-gray-200 flex justify-between items-center">
-                 <h4 className="font-bold text-gray-700">Phiếu Nhập Hàng</h4>
-                 <span className="text-xs font-mono text-gray-500">{ticketItems.length} mặt hàng</span>
+          <div className="bg-white rounded-none shadow-lg border border-gray-300 overflow-hidden mb-20 relative">
+             <div className="bg-white p-4 text-center border-b border-gray-300 border-dashed">
+                 <h2 className="text-xl font-extrabold text-gray-800 uppercase tracking-widest">Phiếu Nhập Hàng</h2>
+                 <p className="text-xs text-gray-500 mt-1">{new Date().toLocaleString('vi-VN')}</p>
+                 <div className="mt-3 text-left bg-gray-50 p-2 rounded text-sm border border-gray-200">
+                    <div><span className="font-bold text-gray-600">NCC:</span> {currentSupplier?.name}</div>
+                    <div><span className="font-bold text-gray-600">SĐT:</span> {currentSupplier?.phone}</div>
+                 </div>
              </div>
-             <div className="divide-y divide-gray-100">
+
+             <div className="p-2">
                 {ticketItems.map((item, idx) => (
-                    <div key={idx} className="p-3">
-                        <div className="flex justify-between items-start mb-1">
-                            <span className="font-bold text-gray-800">{item.pName}</span>
-                            <span className="font-bold text-gray-900">{formatCurrency(item.total)}</span>
+                    <div key={idx} className="mb-4 border border-gray-200 rounded-md overflow-hidden text-sm">
+                        <div className="bg-gray-100 px-3 py-2 font-bold text-gray-800 flex justify-between">
+                            <span>{idx + 1}. {item.pName}</span>
+                            <button onClick={() => handleRemoveTicketItem(idx)} className="text-red-500 text-xs font-normal underline">Xóa</button>
                         </div>
-                        <div className="flex justify-between text-xs text-gray-500">
-                             <span>{item.kg.toFixed(2)} kg x {formatCurrency(item.price)}</span>
-                             <span>{item.con} con</span>
-                             <button onClick={() => handleRemoveTicketItem(idx)} className="text-red-500 font-medium">Xoá</button>
+                        <div className="p-3 grid grid-cols-2 gap-y-1 gap-x-4 text-gray-600">
+                            <div>Tổng cân: <span className="font-bold text-gray-800">{item.gross} kg</span></div>
+                            <div>Trừ bì: <span className="font-bold text-red-600">-{item.tare} kg</span></div>
+                            <div className="col-span-2 border-b border-gray-100 my-1"></div>
+                            <div>Thực nhập: <span className="font-bold text-blue-600">{item.kg} kg</span></div>
+                            <div>Số lượng: <span className="font-bold text-blue-600">{item.con} con</span></div>
+                            <div className="col-span-2 text-xs italic text-gray-400 mt-1">Chi tiết: {item.details}</div>
+                            <div className="col-span-2 border-t border-gray-200 mt-2 pt-2 flex justify-between items-center">
+                                <span>Đơn giá: {formatCurrency(item.price)}</span>
+                                <span className="text-lg font-bold text-gray-800">{formatCurrency(item.total)}</span>
+                            </div>
                         </div>
                     </div>
                 ))}
              </div>
-             <div className="p-4 bg-gray-50 border-t border-gray-200">
-                 <div className="flex justify-between items-center mb-3">
-                     <span className="font-bold text-gray-700">Tổng Thanh Toán:</span>
-                     <span className="text-xl font-bold text-brand-600">
+
+             <div className="bg-gray-800 text-white p-4">
+                 <div className="flex justify-between items-center text-sm mb-1">
+                     <span className="text-gray-300">Tổng bì (lồng):</span>
+                     <span>{ticketItems.reduce((a, b) => a + b.tare, 0).toFixed(2)} kg</span>
+                 </div>
+                 <div className="flex justify-between items-center text-sm mb-3">
+                     <span className="text-gray-300">Tổng thực nhập:</span>
+                     <span>{ticketItems.reduce((a, b) => a + b.kg, 0).toFixed(2)} kg</span>
+                 </div>
+                 <div className="border-t border-gray-600 pt-3 flex justify-between items-center">
+                     <span className="font-bold text-lg uppercase">Tổng Tiền:</span>
+                     <span className="text-2xl font-bold text-yellow-400">
                         {formatCurrency(ticketItems.reduce((a, b) => a + b.total, 0))}
                      </span>
                  </div>
-                 <Button onClick={handleImport} className="w-full py-3 text-lg shadow-lg">LƯU PHIẾU NHẬP</Button>
+                 <Button onClick={handleImport} className="w-full mt-4 bg-yellow-500 hover:bg-yellow-600 text-black font-bold border-none">LƯU & KẾT THÚC</Button>
              </div>
+             
+             <div className="absolute top-full left-0 right-0 h-4 bg-transparent" style={{background: 'radial-gradient(circle, transparent 50%, white 50%)', backgroundSize: '10px 10px'}}></div>
           </div>
       )}
 
-      {/* Modals */}
+      {/* Modals (Giữ nguyên) */}
       <Modal isOpen={isSupModalOpen} onClose={() => setIsSupModalOpen(false)} title="Thêm Nhà Cung Cấp">
          <div className="space-y-4">
             <Input label="Tên trại/người bán" value={newSupName} onChange={(e:any) => setNewSupName(e.target.value)} />
@@ -806,25 +756,43 @@ function CashbookPage() {
                     </div>
 
                     {selectedInvoice && (
-                        <div className="border-t border-gray-200 pt-3">
-                            <h4 className="text-sm font-bold text-gray-700 mb-2">Chi tiết hoá đơn ({selectedInvoice.code})</h4>
-                            <div className="text-xs text-gray-600 mb-2">
-                                Thanh toán: <span className="font-bold">{getPaymentMethodLabel(selectedInvoice.paymentMethod)}</span>
-                            </div>
-                            <div className="space-y-2 max-h-48 overflow-y-auto bg-white border border-gray-100 rounded">
+                        <div className="space-y-3 max-h-60 overflow-y-auto bg-white border border-gray-100 rounded p-2">
                                 {selectedInvoice.lines.map((line, idx) => (
-                                    <div key={idx} className="flex justify-between text-sm p-2 border-b last:border-0 border-gray-50">
-                                        <div>
-                                            <div className="font-medium">{line.productName}</div>
-                                            <div className="text-xs text-gray-500">
-                                                {line.qtyKg > 0 ? line.qtyKg + ' kg' : line.qtyCon + ' con'} x {formatCurrency(line.price)}
-                                            </div>
+                                    <div key={idx} className="flex flex-col p-3 border-b last:border-0 border-gray-100 bg-gray-50 rounded mb-2">
+                                        {/* Dòng 1: Tên hàng + Tổng tiền (Chữ to đùng) */}
+                                        <div className="flex justify-between w-full mb-2">
+                                            <div className="font-bold text-lg text-gray-800">{line.productName}</div>
+                                            <div className="font-bold text-lg text-blue-600">{formatCurrency(line.amount)}</div>
                                         </div>
-                                        <div className="font-medium">{formatCurrency(line.amount)}</div>
+                                        
+                                        {/* Dòng 2: Số lượng & Giá (Chữ vừa) */}
+                                        <div className="flex justify-between text-base text-gray-700 font-medium">
+                                            <span>
+                                                {line.qtyKg} kg <span className="text-gray-300 mx-1">|</span> {line.qtyCon} con
+                                            </span>
+                                            <span>Giá: {formatCurrency(line.price)}</span>
+                                        </div>
+
+                                        {/* Dòng 3: Bì & Chi tiết (Chữ nhỏ hơn xíu nhưng vẫn rõ) */}
+                                        {(line.gross || line.details) && (
+                                            <div className="mt-2 pt-2 border-t border-dashed border-gray-300 text-sm text-gray-600">
+                                                {line.gross && (
+                                                    <div className="flex gap-4 mb-1">
+                                                        <span>Tổng cân: <b className="text-gray-900">{line.gross}kg</b></span>
+                                                        <span>-</span>
+                                                        <span>Trừ Bì: <b className="text-red-600">{line.tare}kg</b></span>
+                                                    </div>
+                                                )}
+                                                {line.details && (
+                                                    <div className="italic text-gray-500">
+                                                        Mã cân: {line.details}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
                                 ))}
                             </div>
-                        </div>
                     )}
                 </>
             )}
@@ -1044,9 +1012,6 @@ export default function App() {
   const [page, setPage] = useState('dashboard');
 
   useEffect(() => {
-    // Check if previously logged in (optional, but requested behavior is "next time just enter code", 
-    // so we can keep the user on login screen but maybe pre-fill or just check if they are already in session)
-    // Here we implement basic session persistence for convenience
     const savedId = localStorage.getItem('gttd_current_business_id');
     if (savedId) {
       db.setBusinessId(savedId);
@@ -1054,15 +1019,26 @@ export default function App() {
     }
   }, []);
 
+  // 👇 1. THÊM HÀM ĐĂNG XUẤT NÀY VÀO
+  const handleLogout = () => {
+    if (window.confirm("Bạn muốn đổi sang tài khoản doanh nghiệp khác?")) {
+      localStorage.removeItem('gttd_current_business_id'); // Xóa mã cũ
+      window.location.reload(); // Tải lại trang để về màn hình đăng nhập
+    }
+  };
+
   const renderPage = () => {
     switch (page) {
-      case 'dashboard': return <Dashboard navigate={setPage} />;
+      // 👇 2. SỬA DÒNG NÀY (Truyền thêm onLogout)
+      case 'dashboard': return <Dashboard navigate={setPage} onLogout={handleLogout} />;
+      
       case 'pos': return <POS navigate={setPage} />;
       case 'inventory': return <Inventory />;
       case 'import': return <ImportPage navigate={setPage} />;
       case 'cash': return <CashbookPage />;
       case 'partners': return <PartnersPage />;
-      default: return <Dashboard navigate={setPage} />;
+      // 👇 3. SỬA CẢ DÒNG DEFAULT NÀY NỮA
+      default: return <Dashboard navigate={setPage} onLogout={handleLogout} />;
     }
   };
 

@@ -253,13 +253,14 @@ class Database {
   async createPurchase(
     supplierId: string,
     date: string,
-    lines: { productId: string; qtyCon: number; qtyKg: number; price: number }[],
+    // 👇 1. Cập nhật tham số nhận vào (thêm gross, tare, details)
+    lines: { productId: string; qtyCon: number; qtyKg: number; price: number; gross: number; tare: number; details: string }[],
     extraCost: number,
     paidAmount: number 
   ) {
     const products = this.getProducts();
     const partners = this.getPartners();
-    const batches = this.getBatches(); // Load all batches (raw)
+    const batches = this.getBatches(); 
     const invoices = this.getInvoices();
     const cash = this.getCashTransactions();
 
@@ -268,8 +269,14 @@ class Database {
 
     const code = `IN-${date.replace(/-/g, '')}-${invoices.length + 1}`;
     let totalGoods = 0;
+    let totalWeight = 0; // Tính tổng cân để ghi chú
+
     const invoiceLines: InvoiceLine[] = [];
-    lines.forEach(l => { totalGoods += l.qtyKg * l.price; });
+    
+    lines.forEach(l => { 
+        totalGoods += l.qtyKg * l.price; 
+        totalWeight += l.qtyKg;
+    });
 
     const newBatches: Batch[] = lines.map((l, idx) => {
       const lineTotal = l.qtyKg * l.price;
@@ -278,8 +285,9 @@ class Database {
       const totalBatchCost = lineTotal + allocatedExtra;
       
       const prod = products.find(p => p.id === l.productId);
-      if (prod) prod.standardCost = l.price; // Update standard cost
+      if (prod) prod.standardCost = l.price; 
 
+      // 👇 2. Lưu chi tiết vào dòng hóa đơn
       invoiceLines.push({
         productId: l.productId,
         productName: prod ? prod.name : 'Unknown',
@@ -287,7 +295,10 @@ class Database {
         qtyKg: l.qtyKg,
         unit: Unit.KG,
         price: l.price,
-        amount: lineTotal
+        amount: lineTotal,
+        gross: l.gross,   // Lưu tổng cân
+        tare: l.tare,     // Lưu bì
+        details: l.details // Lưu chi tiết mã cân
       });
 
       return {
@@ -321,21 +332,21 @@ class Database {
       partnerId: supplierId,
       partnerName: supplier.name,
       totalAmount,
-      paidAmount: totalAmount, // Vốn nhập coi như trả hết
+      paidAmount: totalAmount, 
       debtAmount: 0,
       lines: invoiceLines
     };
 
-    // Save all changes
     this.save(BASE_KEYS.BATCHES, [...batches, ...newBatches]);
     this.save(BASE_KEYS.INVOICES, [invoice, ...invoices]);
     
+    // 👇 3. Cập nhật dòng mô tả trong Sổ Quỹ cho chi tiết hơn
     const txn: CashTransaction = {
       id: `txn-${Date.now()}`,
       date: new Date().toISOString(),
       type: TransactionType.EXPENSE,
       amount: totalAmount,
-      description: `Vốn nhập hàng: ${supplier.name}`,
+      description: `Nhập hàng: ${supplier.name} (${totalWeight.toFixed(1)}kg)`, // Thêm số cân vào tên giao dịch
       refId: invoice.id
     };
     this.save(BASE_KEYS.CASH, [txn, ...cash]);
