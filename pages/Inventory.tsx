@@ -148,7 +148,7 @@ export default function Inventory() {
           {inventoryByProduct.map((item, index) => (
             <Card 
               key={item.product.id} 
-              className={`overflow-hidden transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-blue-50/60 border-blue-100'}`}>
+              className={`overflow-hidden transition-colors ${index % 2 === 0 ? 'bg-white border-gray-200' : 'bg-gray-100 border-gray-300'}`}>
               <div className="border-b border-gray-100 pb-2 mb-2 flex justify-between items-center">
                   <h3 className="font-bold text-lg text-gray-800">{item.product.name}</h3>
                   <button onClick={() => handleOpenModal(item.product)} className="text-xs text-blue-600 underline">Cài đặt giá</button>
