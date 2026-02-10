@@ -962,12 +962,18 @@ function PartnersPage() {
   const [partners, setPartners] = useState<Partner[]>([]);
   const [filter, setFilter] = useState<'ALL' | PartnerType>('ALL');
   
-  // Modal State
+  // Modal Add/Edit
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formName, setFormName] = useState('');
   const [formPhone, setFormPhone] = useState('');
   const [formType, setFormType] = useState<PartnerType>(PartnerType.CUSTOMER);
+
+  // Modal Detail & Pay Debt
+  const [detailPartner, setDetailPartner] = useState<Partner | null>(null);
+  const [partnerInvoices, setPartnerInvoices] = useState<Invoice[]>([]);
+  const [payAmount, setPayAmount] = useState('');
+  const [isPayMode, setIsPayMode] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -979,7 +985,48 @@ function PartnersPage() {
     else setPartners(all.filter(p => p.type === filter));
   }
 
-  const handleOpenModal = (p?: Partner) => {
+  // --- Logic Detail & Pay ---
+  const handleOpenDetail = (p: Partner) => {
+    setDetailPartner(p);
+    setIsPayMode(false);
+    setPayAmount('');
+    
+    // Lấy danh sách hóa đơn còn nợ của khách này
+    const invoices = db.getInvoices().filter(i => 
+      i.partnerId === p.id && 
+      i.type === 'EXPORT' && 
+      i.debtAmount > 0
+    );
+    setPartnerInvoices(invoices);
+  };
+
+  const handleSettleDebt = async () => {
+    if (!detailPartner) return;
+    const amount = parseFloat(payAmount);
+    if (!amount || amount <= 0) return alert("Vui lòng nhập số tiền hợp lệ");
+    if (amount > detailPartner.debt) return alert("Số tiền trả lớn hơn số nợ hiện tại!");
+
+    if (window.confirm(`Xác nhận thu nợ ${formatCurrency(amount)} của ${detailPartner.name}?`)) {
+        try {
+            await db.settleDebt(detailPartner.id, amount);
+            alert("Đã thanh toán nợ thành công!");
+            
+            // Refresh data
+            loadData();
+            // Cập nhật lại view detail ngay lập tức
+            const updatedP = db.getPartners().find(p => p.id === detailPartner.id);
+            if(updatedP) handleOpenDetail(updatedP);
+            else setDetailPartner(null);
+
+        } catch (e: any) {
+            alert(e.message);
+        }
+    }
+  };
+
+  // --- Logic Add/Edit ---
+  const handleOpenEdit = (e: React.MouseEvent, p?: Partner) => {
+    e.stopPropagation();
     if (p) {
       setEditingId(p.id);
       setFormName(p.name);
@@ -996,7 +1043,6 @@ function PartnersPage() {
 
   const handleSave = () => {
     if (!formName) return alert("Vui lòng nhập tên");
-    
     const partner: Partner = {
       id: editingId || `partner-${Date.now()}`,
       name: formName,
@@ -1004,7 +1050,6 @@ function PartnersPage() {
       type: formType,
       debt: editingId ? (partners.find(p => p.id === editingId)?.debt || 0) : 0
     };
-    
     db.savePartner(partner);
     loadData();
     setIsModalOpen(false);
@@ -1013,11 +1058,7 @@ function PartnersPage() {
   const handleDelete = (id: string) => {
     if(window.confirm("Xóa đối tác này?")) {
       db.deletePartner(id);
-      // Force UI Update
-      setTimeout(() => {
-          loadData();
-          setIsModalOpen(false);
-      }, 50);
+      setTimeout(() => { loadData(); setIsModalOpen(false); }, 50);
     }
   }
 
@@ -1025,7 +1066,7 @@ function PartnersPage() {
     <div className="pb-20">
        <div className="flex justify-between items-center mb-4">
          <h1 className="text-xl font-bold">Đối tác</h1>
-         <Button onClick={() => handleOpenModal()} className="text-sm px-3 py-1">+ Thêm Mới</Button>
+         <Button onClick={(e: any) => handleOpenEdit(e)} className="text-sm px-3 py-1">+ Thêm Mới</Button>
        </div>
 
        {/* Filter Pills */}
@@ -1035,28 +1076,35 @@ function PartnersPage() {
           <button onClick={() => setFilter(PartnerType.SUPPLIER)} className={`px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${filter === PartnerType.SUPPLIER ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'}`}>Nhà cung cấp</button>
        </div>
 
+       {/* Partner List */}
        <div className="space-y-3">
          {partners.map(p => (
-           <div key={p.id} onClick={() => handleOpenModal(p)} className="bg-white p-3 rounded shadow-sm border border-gray-100 flex justify-between items-center active:bg-gray-50 cursor-pointer">
+           <div key={p.id} onClick={() => handleOpenDetail(p)} className="bg-white p-3 rounded-lg shadow-sm border border-gray-100 flex justify-between items-center active:bg-blue-50 cursor-pointer transition-colors hover:border-blue-200">
              <div>
-               <div className="font-medium flex items-center gap-2">
+               <div className="font-bold text-gray-800 flex items-center gap-2">
                  {p.name} 
-                 <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wide ${p.type === 'CUSTOMER' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>
+                 <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wide font-bold ${p.type === 'CUSTOMER' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>
                    {p.type === 'CUSTOMER' ? 'Khách' : 'Trại'}
                  </span>
                </div>
-               <div className="text-xs text-gray-500">{p.phone || 'Không có sđt'}</div>
+               <div className="text-xs text-gray-500 mt-0.5">{p.phone || 'Chưa có SĐT'}</div>
              </div>
-             <div className="text-right">
-               <div className="text-xs text-gray-500">Dư nợ</div>
-               <div className={`font-bold ${p.debt > 0 ? 'text-orange-500' : 'text-gray-400'}`}>
-                 {Number(p.debt).toLocaleString('vi-VN')}
-               </div>
+             <div className="flex items-center gap-3">
+                <div className="text-right">
+                    <div className="text-[10px] text-gray-400 uppercase font-semibold">Dư nợ</div>
+                    <div className={`font-bold text-sm ${p.debt > 0 ? 'text-orange-600' : 'text-green-600'}`}>
+                        {formatCurrency(p.debt)}
+                    </div>
+                </div>
+                <button onClick={(e) => handleOpenEdit(e, p)} className="p-2 text-gray-400 hover:text-blue-600 bg-gray-50 rounded-full">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
+                </button>
              </div>
            </div>
          ))}
        </div>
 
+       {/* MODAL 1: Add/Edit Partner */}
        <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={editingId ? "Sửa Đối Tác" : "Thêm Đối Tác"}>
           <div className="space-y-4">
             <Select 
@@ -1064,21 +1112,91 @@ function PartnersPage() {
               value={formType} 
               onChange={(e: any) => setFormType(e.target.value)} 
               options={[
-                {value: PartnerType.CUSTOMER, label: 'Khách hàng (Người mua)'},
-                {value: PartnerType.SUPPLIER, label: 'Nhà cung cấp (Trại/Cám)'}
+                {value: PartnerType.CUSTOMER, label: 'Khách hàng'},
+                {value: PartnerType.SUPPLIER, label: 'Nhà cung cấp'}
               ]}
             />
             <Input label="Tên" value={formName} onChange={(e: any) => setFormName(e.target.value)} placeholder="Tên khách/trại..." />
             <Input label="Số điện thoại" value={formPhone} onChange={(e: any) => setFormPhone(e.target.value)} type="tel" />
             
             <div className="flex gap-2 pt-2">
-              {editingId && (
-                <Button variant="danger" className="flex-1" onClick={() => handleDelete(editingId)}>Xóa</Button>
-              )}
+              {editingId && <Button variant="danger" className="flex-1" onClick={() => handleDelete(editingId)}>Xóa</Button>}
               <Button className="flex-[2]" onClick={handleSave}>Lưu Thông Tin</Button>
             </div>
           </div>
        </Modal>
+
+       {/* MODAL 2: DETAIL & PAY DEBT */}
+       {detailPartner && (
+         <Modal isOpen={!!detailPartner} onClose={() => setDetailPartner(null)} title="Chi Tiết Nợ">
+            <div className="space-y-4">
+                {/* Header Info */}
+                <div className="bg-gray-50 p-4 rounded-xl text-center border border-gray-100">
+                    <h2 className="text-xl font-bold text-gray-800">{detailPartner.name}</h2>
+                    <div className="text-sm text-gray-500 mb-2">{detailPartner.phone}</div>
+                    
+                    <div className="text-xs text-gray-400 uppercase font-bold tracking-widest mt-2">Tổng nợ hiện tại</div>
+                    <div className={`text-3xl font-black ${detailPartner.debt > 0 ? 'text-orange-600' : 'text-green-600'}`}>
+                        {formatCurrency(detailPartner.debt)}
+                    </div>
+                </div>
+
+                {/* Danh sách hóa đơn nợ */}
+                <div className="max-h-60 overflow-y-auto pr-1 space-y-2">
+                    <div className="text-xs font-bold text-gray-500 uppercase mb-2">Các hóa đơn chưa thanh toán</div>
+                    {partnerInvoices.length === 0 ? (
+                        <div className="text-sm text-center text-gray-400 py-4 italic">Không có hóa đơn nợ nào.</div>
+                    ) : (
+                        partnerInvoices.map(inv => (
+                            <div key={inv.id} className="bg-white border border-orange-100 rounded-lg p-3 shadow-sm flex justify-between items-center">
+                                <div>
+                                    <div className="font-bold text-sm text-gray-800">{formatDate(inv.date)} <span className="text-gray-400 font-normal text-xs">#{inv.code}</span></div>
+                                    <div className="text-xs text-gray-500 mt-1">
+                                        Tổng đơn: {formatCurrency(inv.totalAmount)}
+                                    </div>
+                                </div>
+                                <div className="text-right">
+                                    <div className="text-xs text-orange-500 font-semibold">Còn nợ</div>
+                                    <div className="font-bold text-orange-600">{formatCurrency(inv.debtAmount)}</div>
+                                </div>
+                            </div>
+                        ))
+                    )}
+                </div>
+
+                {/* Footer Action */}
+                <div className="pt-2 border-t border-gray-100">
+                    {isPayMode ? (
+                        <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                             <div className="bg-green-50 p-2 rounded text-xs text-green-700 mb-2 border border-green-100">
+                                Đang thực hiện thu nợ. Hệ thống sẽ tự động trừ vào các hóa đơn cũ nhất.
+                             </div>
+                             <Input 
+                                label="Số tiền khách trả" 
+                                type="number" 
+                                value={payAmount} 
+                                onChange={(e: any) => setPayAmount(e.target.value)} 
+                                autoFocus
+                                placeholder="Nhập số tiền..."
+                             />
+                             <div className="flex gap-2">
+                                <Button variant="secondary" className="flex-1" onClick={() => setIsPayMode(false)}>Hủy</Button>
+                                <Button className="flex-[2] bg-green-600 hover:bg-green-700" onClick={handleSettleDebt}>Xác Nhận Thu</Button>
+                             </div>
+                        </div>
+                    ) : (
+                        <Button 
+                            className="w-full py-3 bg-orange-600 hover:bg-orange-700 shadow-lg shadow-orange-200" 
+                            disabled={detailPartner.debt <= 0}
+                            onClick={() => setIsPayMode(true)}
+                        >
+                            {detailPartner.debt > 0 ? 'THANH TOÁN NỢ' : 'KHÁCH HẾT NỢ'}
+                        </Button>
+                    )}
+                </div>
+            </div>
+         </Modal>
+       )}
     </div>
   )
 }

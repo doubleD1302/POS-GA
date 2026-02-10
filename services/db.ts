@@ -458,22 +458,83 @@ class Database {
     const today = new Date().toISOString().split('T')[0];
     const invoices = this.getInvoices();
     const partners = this.getPartners();
+    const cashTxns = this.getCashTransactions();
 
+    // 1. Doanh thu hôm nay = Tổng tiền vào (INCOME) trong sổ quỹ hôm nay
+    // Bao gồm cả: Bán hàng tiền mặt + Khách trả nợ hôm nay
+    const todayTxns = cashTxns.filter(t => t.date.startsWith(today) && t.type === TransactionType.INCOME);
+    const revenueToday = todayTxns.reduce((sum, t) => sum + t.amount, 0);
+
+    // 2. Tính giá vốn (COGS) của các đơn hàng BÁN RA hôm nay
     const todayExportInvoices = invoices.filter(i => i.date === today && i.type === 'EXPORT');
-    const todayImportInvoices = invoices.filter(i => i.date === today && i.type === 'IMPORT');
+    const realizedCogsToday = todayExportInvoices.reduce((sum, i) => sum + (i.cogs || 0), 0);
     
-    const revenueToday = todayExportInvoices.reduce((sum, i) => sum + i.paidAmount, 0);
-    const realizedCogsToday = todayExportInvoices.reduce((sum, i) => {
-        const ratio = i.totalAmount > 0 ? i.paidAmount / i.totalAmount : 0;
-        return sum + ((i.cogs || 0) * ratio);
-    }, 0);
-    
+    // 3. Lợi nhuận = Thực thu - Giá vốn
     const profitToday = revenueToday - realizedCogsToday;
+
     const receivables = partners.filter(p => p.type === PartnerType.CUSTOMER).reduce((sum, p) => sum + p.debt, 0);
     const importCapital = invoices.filter(i => i.type === 'IMPORT').reduce((sum, i) => sum + i.totalAmount, 0);
+    
+    const todayImportInvoices = invoices.filter(i => i.date === today && i.type === 'IMPORT');
     const importToday = todayImportInvoices.reduce((sum, i) => sum + i.totalAmount, 0);
 
     return { revenueToday, profitToday, receivables, importCapital, importToday };
+  }
+
+  // --- TÍNH NĂNG MỚI: THANH TOÁN NỢ ---
+  async settleDebt(partnerId: string, amount: number, note?: string) {
+    const partners = this.getPartners();
+    const partner = partners.find(p => p.id === partnerId);
+    if (!partner) throw new Error("Không tìm thấy khách hàng");
+    if (amount <= 0) throw new Error("Số tiền trả phải lớn hơn 0");
+
+    // 1. Tạo giao dịch thu tiền (Sẽ tự động làm tăng Doanh thu/Lợi nhuận ở Dashboard)
+    const cashTxns = this.getCashTransactions();
+    const txnId = `txn-debt-${Date.now()}`;
+    const newTxn: CashTransaction = {
+      id: txnId,
+      date: new Date().toISOString(),
+      type: TransactionType.INCOME,
+      amount: amount,
+      description: note || `Thu nợ khách: ${partner.name}`,
+    };
+    this.save(BASE_KEYS.CASH, [newTxn, ...cashTxns]);
+
+    // 2. Trừ nợ tổng của khách hàng
+    partner.debt = Math.max(0, partner.debt - amount);
+    this.save(BASE_KEYS.PARTNERS, partners);
+
+    // 3. Cập nhật trạng thái các hóa đơn nợ chi tiết (FIFO - Trừ hóa đơn cũ trước)
+    const allInvoices = this.getInvoices();
+    const unpaidInvoices = allInvoices
+      .filter(i => i.partnerId === partnerId && i.type === 'EXPORT' && i.debtAmount > 0)
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    let remainingPay = amount;
+
+    for (const inv of unpaidInvoices) {
+      if (remainingPay <= 0) break;
+
+      const payForThisInvoice = Math.min(inv.debtAmount, remainingPay);
+      
+      inv.paidAmount = (inv.paidAmount || 0) + payForThisInvoice;
+      inv.debtAmount -= payForThisInvoice;
+      
+      // Cập nhật paymentMethod nếu trả hết
+      if (inv.debtAmount <= 0) {
+        inv.paymentMethod = PaymentMethod.CASH;
+      } else {
+        inv.paymentMethod = PaymentMethod.DEBT;
+      }
+
+      remainingPay -= payForThisInvoice;
+    }
+
+    // Lưu lại danh sách hóa đơn đã cập nhật
+    this.save(BASE_KEYS.INVOICES, allInvoices);
+
+    await delay(300);
+    return true;
   }
 }
 
