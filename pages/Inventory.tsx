@@ -134,8 +134,15 @@ export default function Inventory() {
                   <h3 className="font-bold text-lg text-gray-800">{item.product.name}</h3>
                 </div>
                 <div className="text-right">
-                  <div className="font-bold text-brand-600">{item.totalKg.toFixed(1)} kg</div>
-                  <div className="text-sm text-gray-600">{item.totalCon} con</div>
+                  <div className="flex items-baseline justify-end gap-1">
+                      <span className="text-2xl font-black text-blue-700 leading-none">
+                        {item.totalCon.toLocaleString()}
+                      </span>
+                      <span className="text-xs font-bold text-blue-600 uppercase">con</span>
+                 </div>
+                  <div className="text-sm font-medium text-gray-400 mt-1">
+                        {item.totalKg.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} kg
+                   </div>
                 </div>
               </div>
 
@@ -156,10 +163,14 @@ export default function Inventory() {
                           Vốn: {formatCurrency(batch.costPerKg)}/kg
                         </div>
                       </div>
-                      <div className="text-right">
-                         <div className="text-gray-900 font-medium">{batch.qtyRemKg.toFixed(1)} kg</div>
-                         <div className="text-xs text-gray-500">({batch.qtyRemCon} con)</div>
-                         <button onClick={() => handleOpenBatchEdit(batch)} className="text-[10px] text-blue-600 underline mt-1">Sửa tồn</button>
+                      <div className="text-right flex flex-col items-end">
+                        <div className="font-bold text-gray-800 text-base">
+                          {batch.qtyRemCon} <span className="text-xs font-normal text-gray-500">con</span>
+                      </div>
+                       <div className="text-xs text-gray-400 font-medium">
+                          {batch.qtyRemKg.toFixed(1)} kg
+                       </div>
+                        <button onClick={() => handleOpenBatchEdit(batch)} className="text-[10px] text-blue-600 underline mt-1">Sửa tồn</button>
                       </div>
                     </div>
                   ))
