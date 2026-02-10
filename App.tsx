@@ -1400,7 +1400,7 @@ export default function App() {
       case 'dashboard': return <Dashboard navigate={setPage} onLogout={handleLogout} />;
       
       case 'pos': return <POS navigate={setPage} />;
-      case 'inventory': return <Inventory />;
+      case 'inventory': return <Inventory key={lastUpdate} />;
       case 'import': return <ImportPage navigate={setPage} />;
       case 'cash': return <CashbookPage />;
       case 'partners': return <PartnersPage />;

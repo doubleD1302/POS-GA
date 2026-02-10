@@ -455,11 +455,14 @@ class Database {
       let remainingKgToDeduct = line.qtyKg;
       let remainingConToDeduct = line.qtyCon;
       
+      // Mặc định là MALE nếu không có giới tính
+      const targetGender = line.gender || 'MALE';
+      
       const productBatches = batches
-        .filter(b => b.productId === line.productId && b.status === 'OPEN' && b.gender === line.gender) // <--- THÊM CHECK GENDER
+        .filter(b => b.productId === line.productId && b.status === 'OPEN' && b.gender === targetGender)
         .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
       if (productBatches.length === 0) {
-         const avgCost = line.gender === 'MALE' ? prod.costMale : prod.costFemale;
+         const avgCost = targetGender === 'MALE' ? prod.costMale : prod.costFemale;
          const estCogs = avgCost ? (line.qtyKg > 0 ? line.qtyKg * avgCost : 0) : 0;
          totalCOGS += estCogs;
       }
