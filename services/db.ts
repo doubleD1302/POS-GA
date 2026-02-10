@@ -379,6 +379,52 @@ class Database {
     return invoice;
   }
 
+  async createStockAdjustment(date: string, lines: any[]) {
+    const products = this.getProducts();
+    const batches = this.getBatches();
+    
+    // Tạo mã lô hàng đặc biệt
+    const code = `ADJ-${date.replace(/-/g, '')}-${Date.now().toString().slice(-4)}`;
+
+    const newBatches: Batch[] = lines.map((l, idx) => {
+      const lineTotal = l.qtyKg * l.price;
+      
+      // Cập nhật giá vốn nhập mới nhất cho sản phẩm (để lần sau nhập tiếp gợi ý giá này)
+      const prod = products.find(p => p.id === l.productId);
+      if (prod) {
+        if (l.gender === 'MALE') prod.costMale = l.price;
+        else prod.costFemale = l.price;
+      }
+
+      return {
+        id: `batch-adj-${Date.now()}-${idx}`,
+        code: `${code}-B${idx+1}`,
+        productId: l.productId,
+        gender: l.gender || 'MALE',
+        supplierId: 'INTERNAL',       // Đánh dấu là nội bộ
+        supplierName: 'KHO NỘI BỘ',   // Tên hiển thị
+        date,
+        qtyInCon: l.qtyCon,
+        qtyInKg: l.qtyKg,
+        qtyRemCon: l.qtyCon, // Tồn ban đầu = nhập
+        qtyRemKg: l.qtyKg,
+        baseCost: lineTotal,
+        extraCost: 0,        // Kiểm tồn thường không có phí vận chuyển
+        totalCost: lineTotal,
+        costPerKg: l.qtyKg > 0 ? lineTotal / l.qtyKg : 0,
+        costPerCon: l.qtyCon > 0 ? lineTotal / l.qtyCon : 0,
+        status: 'OPEN'
+      };
+    });
+
+    // Chỉ lưu Batch và Update giá sản phẩm
+    this.save(BASE_KEYS.PRODUCTS, products);
+    this.save(BASE_KEYS.BATCHES, [...batches, ...newBatches]);
+
+    await delay(300);
+    return true;
+  }
+
   async createSale(customerId: string, date: string, lines: any[], paidAmount: number) {
     const partners = this.getPartners();
     const batches = this.load<Batch[]>(BASE_KEYS.BATCHES, []);

@@ -113,6 +113,7 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
   const [suppliers, setSuppliers] = useState<Partner[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [supplierId, setSupplierId] = useState('');
+  const [importMode, setImportMode] = useState<'PURCHASE' | 'ADJUST'>('PURCHASE');
   
   // Danh sách hàng trong phiếu
   const [ticketItems, setTicketItems] = useState<{
@@ -200,39 +201,72 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
   };
 
   // --- 2. HÀM THÊM VÀO PHIẾU (QUAN TRỌNG) ---
+  // --- 2. HÀM THÊM VÀO PHIẾU (ĐÃ SỬA LOGIC GỘP DÒNG) ---
   const handleAddItemToTicket = () => {
     // Validate dữ liệu
     if (!currentPid) return alert("Chưa chọn loại gà!");
     if (weightList.length === 0) return alert("Chưa nhập mã cân nào!");
     if (netWeight <= 0) return alert("Khối lượng thực bằng 0!");
     
+    // Lấy giá theo giới tính đang chọn
     const actualPrice = gender === 'MALE' ? priceMale : priceFemale;
     if (!actualPrice) return alert("Chưa nhập giá nhập!");
 
     const prod = products.find(p => p.id === currentPid);
+    const priceNum = parseFloat(actualPrice);
     
     // Tạo chuỗi chi tiết: "50-2, 30-1"
     const detailsStr = weightList.map(i => `${i.w}${i.t > 0 ? `(-${i.t}b)` : ''}`).join(' + ');
 
-    setTicketItems([...ticketItems, {
+    // Object cho dòng mới
+    const newItem = {
       pid: currentPid,
-      pName: `${prod.name} (${gender === 'MALE' ? 'Trống' : 'Mái'})`,
+      // Tên hiển thị rõ ràng Trống/Mái
+      pName: `${prod ? prod.name : 'Unknown'} (${gender === 'MALE' ? 'Trống' : 'Mái'})`, 
       gender: gender,
       kg: netWeight,
       con: totalCon,
-      price: parseFloat(actualPrice),
-      total: netWeight * parseFloat(actualPrice),
+      price: priceNum,
+      total: netWeight * priceNum,
       gross: totalGrossWeight,
       tare: totalTare,
       details: detailsStr
-    }]);
+    };
+
+    // --- LOGIC GỘP DÒNG THÔNG MINH ---
+    // Chỉ gộp nếu trùng PID + trùng Giới Tính + trùng Giá
+    const existingIndex = ticketItems.findIndex(item => 
+        item.pid === newItem.pid && 
+        item.gender === newItem.gender && 
+        item.price === newItem.price
+    );
+
+    if (existingIndex >= 0) {
+        // Nếu đã có dòng y hệt (cùng loại, cùng giới tính, cùng giá) -> Cộng dồn số lượng
+        const updatedItems = [...ticketItems];
+        const existing = updatedItems[existingIndex];
+        
+        updatedItems[existingIndex] = {
+            ...existing,
+            kg: existing.kg + newItem.kg,
+            con: existing.con + newItem.con,
+            total: existing.total + newItem.total, // Cộng tiền
+            gross: existing.gross + newItem.gross,
+            tare: existing.tare + newItem.tare,
+            details: `${existing.details} + ${newItem.details}` // Nối chi tiết cân
+        };
+        setTicketItems(updatedItems);
+    } else {
+        // Nếu khác (VD: khác giới tính hoặc khác giá) -> Thêm dòng mới
+        setTicketItems([...ticketItems, newItem]);
+    }
 
     // Reset bàn cân sau khi thêm xong
     setWeightList([]);
-    // Giữ nguyên loại gà và giá, chỉ reset các ô nhập
     setCurrentWeightInput('');
     setCurrentTareInput('');
     setCurrentCountInput('');
+    // Lưu ý: Không reset giá và giới tính để tiện nhập mã cân tiếp theo
   };
 
   const handleRemoveTicketItem = (idx: number) => {
@@ -242,22 +276,38 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
   }
 
   const handleImport = async () => {
-    if(!supplierId) return alert('Chọn nhà cung cấp');
     if(ticketItems.length === 0) return alert('Chưa có hàng hoá nào');
+    
+    // Nếu là Nhập Mua thì bắt buộc chọn NCC
+    if(importMode === 'PURCHASE' && !supplierId) return alert('Chọn nhà cung cấp');
 
-    await db.createPurchase(supplierId, new Date().toISOString().split('T')[0], 
-      ticketItems.map(i => ({ 
-        productId: i.pid, 
-        qtyKg: i.kg, 
-        qtyCon: i.con, 
-        price: i.price,
-        gross: i.gross,
-        tare: i.tare,
-        details: i.details
-      })),
-      0, 0
-    );
-    alert('Đã lưu phiếu nhập thành công!');
+    if (importMode === 'PURCHASE') {
+        // Logic cũ
+        await db.createPurchase(supplierId, new Date().toISOString().split('T')[0], 
+            ticketItems.map(i => ({ 
+                productId: i.pid, 
+                qtyKg: i.kg, 
+                qtyCon: i.con, 
+                price: i.price,
+                gender: i.gender
+            })),
+            0, 0
+        );
+        alert('Đã lưu phiếu nhập mua!');
+    } else {
+        // Logic mới: Kiểm tồn
+        await db.createStockAdjustment(new Date().toISOString().split('T')[0], 
+            ticketItems.map(i => ({ 
+                productId: i.pid, 
+                qtyKg: i.kg, 
+                qtyCon: i.con, 
+                price: i.price,
+                gender: i.gender
+            }))
+        );
+        alert('Đã cập nhật kho (Kiểm tồn)!');
+    }
+    
     navigate('inventory');
   }
 
@@ -321,7 +371,24 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
         <ICONS.Inventory /> Nhập Hàng
       </h1>
 
+      {/* MODE TABS */}
+      <div className="flex bg-gray-100 p-1 rounded-lg mb-4 border border-gray-200">
+        <button 
+            onClick={() => setImportMode('PURCHASE')}
+            className={`flex-1 py-2 text-sm font-bold rounded-md transition-all ${importMode === 'PURCHASE' ? 'bg-white shadow text-blue-700' : 'text-gray-500'}`}
+        >
+            NHẬP MUA (NCC)
+        </button>
+        <button 
+            onClick={() => setImportMode('ADJUST')}
+            className={`flex-1 py-2 text-sm font-bold rounded-md transition-all ${importMode === 'ADJUST' ? 'bg-white shadow text-purple-700' : 'text-gray-500'}`}
+        >
+            KIỂM TỒN (NỘI BỘ)
+        </button>
+      </div>
+
       {/* 1. SUPPLIER SELECT */}
+      {importMode === 'PURCHASE' && (
       <Card className="mb-4 bg-blue-50 border-blue-100">
          <div className="flex justify-between items-center mb-1">
             <label className="text-xs font-bold text-blue-800 uppercase">Nhà Cung Cấp</label>
@@ -336,6 +403,7 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
            <button onClick={() => setIsSupModalOpen(true)} className="px-4 bg-blue-600 text-white rounded-lg font-bold shadow-sm">+</button>
          </div>
       </Card>
+      )}
 
       {/* 2. WEIGHING CALCULATOR */}
       <Card className="mb-6 border-brand-200 shadow-md">
