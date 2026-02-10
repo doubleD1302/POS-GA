@@ -138,7 +138,7 @@ class Database {
   }
 
   // Lưu dữ liệu: Update RAM -> Update Local -> Đẩy lên Server
-  private save(key: string, data: any) {
+  private async save(key: string, data: any) {
     const fullKey = this.k(key);
     
     // 1. Cập nhật RAM & Local ngay lập tức (Optimistic UI)
@@ -147,12 +147,14 @@ class Database {
     if (this.onDataChange) this.onDataChange(); // Render lại ngay
 
     // 2. Gửi lên Supabase
-    supabase
+    const { error } = await supabase
       .from('app_storage')
-      .upsert({ key: fullKey, value: data, updated_at: new Date() })
-      .then(({ error }) => {
-        if (error) console.error(`❌ Lỗi đồng bộ ${key}:`, error.message);
-      });
+      .upsert({ key: fullKey, value: data, updated_at: new Date() });
+      
+    if (error) {
+      console.error(`❌ Lỗi đồng bộ ${key}:`, error.message);
+      throw error; // Ném lỗi để bên ngoài biết mà xử lý
+    }
   }
 
   checkBusinessExists(id: string): boolean {
@@ -191,10 +193,15 @@ class Database {
   }
   
   // Hàm này để init lần đầu cho shop mới
-  seedNewBusiness() {
-      this.save(BASE_KEYS.PRODUCTS, SEED_PRODUCTS);
-      this.save(BASE_KEYS.PARTNERS, SEED_PARTNERS);
-      this.save(BASE_KEYS.START_DATE, new Date().toISOString().split('T')[0]);
+  async seedNewBusiness() {
+      console.log("🌱 Đang khởi tạo dữ liệu mẫu lên Cloud...");
+      // Dùng Promise.all để lưu 3 cái cùng lúc cho nhanh
+      await Promise.all([
+        this.save(BASE_KEYS.PRODUCTS, SEED_PRODUCTS),
+        this.save(BASE_KEYS.PARTNERS, SEED_PARTNERS),
+        this.save(BASE_KEYS.START_DATE, new Date().toISOString().split('T')[0])
+      ]);
+      console.log("✅ Đã khởi tạo xong dữ liệu mẫu!");
   }
 
   getPartners(type?: PartnerType): Partner[] {

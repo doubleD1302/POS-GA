@@ -41,10 +41,19 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
 
   const confirmCreate = async () => {
     setIsLoading(true);
-    await db.init(code); // Kết nối
-    db.seedNewBusiness(); // TẠO DỮ LIỆU MẪU LÊN SERVER NGAY
-    onLogin();
-    setIsLoading(false);
+    try {
+      await db.init(code);
+      
+      // 👇 QUAN TRỌNG: Thêm await ở đây để chờ lưu xong lên server
+      await db.seedNewBusiness(); 
+      
+      onLogin(); // Chỉ vào app khi đã chắc chắn dữ liệu nằm trên server
+    } catch (error) {
+      console.error(error);
+      alert("Không thể tạo dữ liệu trên máy chủ. Vui lòng thử lại!");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   if (isConfirming) {
