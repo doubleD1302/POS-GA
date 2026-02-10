@@ -38,89 +38,126 @@ const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
 
 class Database {
   private businessId: string = '';
-  // Bộ nhớ đệm (Cache) để App chạy nhanh, không phải chờ mạng mỗi lần bấm
   private cache: Record<string, any> = {}; 
+  // Callback để báo cho React biết cần render lại khi dữ liệu thay đổi từ bên ngoài
+  private onDataChange: (() => void) | null = null;
 
   constructor() {
     const savedId = localStorage.getItem('gttd_current_business_id');
     if (savedId) this.businessId = savedId;
   }
 
-  // --- HÀM QUAN TRỌNG: KẾT NỐI & TẢI DỮ LIỆU ---
+  // Đăng ký hàm lắng nghe sự thay đổi
+  subscribe(callback: () => void) {
+    this.onDataChange = callback;
+  }
+
+  // --- 1. KIỂM TRA ONLINE (Mới) ---
+  async checkBusinessOnline(code: string): Promise<boolean> {
+    // Kiểm tra xem trên server đã có key products của shop này chưa
+    const { data, error } = await supabase
+      .from('app_storage')
+      .select('key')
+      .eq('key', `${code}_products`)
+      .maybeSingle();
+    
+    if (error) {
+      console.error("Lỗi kiểm tra:", error);
+      return false;
+    }
+    return !!data; // Trả về true nếu tìm thấy data
+  }
+
+  // --- 2. KHỞI TẠO & ĐỒNG BỘ ---
   async init(businessCode: string) {
     this.businessId = businessCode;
     localStorage.setItem('gttd_current_business_id', businessCode);
-    console.log(`📡 Đang tải dữ liệu cho shop: ${businessCode}...`);
+    console.log(`📡 Đang tải dữ liệu Cloud cho: ${businessCode}...`);
 
-    // 1. Tải toàn bộ dữ liệu từ Supabase về Cache
+    // Tải dữ liệu mới nhất từ Server
     const keys = Object.values(BASE_KEYS).map(k => `${businessCode}_${k}`);
     const { data, error } = await supabase
       .from('app_storage')
       .select('key, value')
       .in('key', keys);
 
-    if (error) console.error("Lỗi tải data:", error);
+    // Xóa cache cũ để tránh lẫn lộn
+    this.cache = {};
 
-    // 2. Đổ dữ liệu vào RAM (Cache)
     if (data && data.length > 0) {
       data.forEach(row => {
         this.cache[row.key] = row.value;
-        // Backup vào LocalStorage phòng khi mất mạng
         localStorage.setItem(row.key, JSON.stringify(row.value));
       });
-      console.log("✅ Đã đồng bộ dữ liệu xong!");
+      console.log("✅ Đã tải xong dữ liệu từ Cloud!");
     } else {
-      console.log("⚠️ Shop mới, chưa có dữ liệu trên mây. Dùng dữ liệu Local.");
-      // Nếu trên mây chưa có, thử lấy từ LocalStorage
+      console.log("⚠️ Không tìm thấy dữ liệu trên mây. Sử dụng local hoặc khởi tạo mới.");
+      // Nếu không có trên mây, thử load local (phòng khi mất mạng)
       Object.values(BASE_KEYS).forEach(k => {
         const key = this.k(k);
         const local = localStorage.getItem(key);
         if (local) this.cache[key] = JSON.parse(local);
       });
     }
+
+    // --- KÍCH HOẠT REALTIME ---
+    // Lắng nghe thay đổi từ các thiết bị khác
+    supabase.channel('custom-all-channel')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'app_storage' },
+      (payload) => {
+        const newRow = payload.new as { key: string, value: any };
+        // Chỉ cập nhật nếu key thuộc về business hiện tại
+        if (newRow && newRow.key && newRow.key.startsWith(`${this.businessId}_`)) {
+          console.log("🔄 Phát hiện thay đổi từ thiết bị khác:", newRow.key);
+          this.cache[newRow.key] = newRow.value;
+          localStorage.setItem(newRow.key, JSON.stringify(newRow.value));
+          
+          // Báo cho React render lại
+          if (this.onDataChange) this.onDataChange();
+        }
+      }
+    )
+    .subscribe();
   }
 
+  // --- 3. CÁC HÀM HELPER ---
   private k(key: string): string {
     if (!this.businessId) return `temp_${key}`;
     return `${this.businessId}_${key}`;
   }
 
-  // Hàm load: Đọc từ RAM (Siêu nhanh)
   private load<T>(key: string, defaultVal: T): T {
     const fullKey = this.k(key);
-    // Ưu tiên đọc từ RAM
+    // Ưu tiên đọc RAM (đã được sync với Cloud)
     if (this.cache[fullKey] !== undefined) {
       return this.cache[fullKey] as T;
     }
-    // Không có thì trả về default
     return defaultVal;
   }
 
-  // Hàm save: Lưu RAM -> Lưu Local -> Gửi lên Supabase (Bất đồng bộ)
+  // Lưu dữ liệu: Update RAM -> Update Local -> Đẩy lên Server
   private save(key: string, data: any) {
     const fullKey = this.k(key);
     
-    // 1. Cập nhật RAM ngay lập tức (để UI update)
+    // 1. Cập nhật RAM & Local ngay lập tức (Optimistic UI)
     this.cache[fullKey] = data;
-
-    // 2. Lưu LocalStorage (Backup offline)
     localStorage.setItem(fullKey, JSON.stringify(data));
+    if (this.onDataChange) this.onDataChange(); // Render lại ngay
 
-    // 3. Gửi lên Supabase (Chạy ngầm, không bắt App chờ)
+    // 2. Gửi lên Supabase
     supabase
       .from('app_storage')
-      .upsert({ key: fullKey, value: data })
+      .upsert({ key: fullKey, value: data, updated_at: new Date() })
       .then(({ error }) => {
-        if (error) console.error(`❌ Lỗi lưu ${key}:`, error.message);
-        else console.log(`☁️ Đã lưu ${key} lên mây`);
+        if (error) console.error(`❌ Lỗi đồng bộ ${key}:`, error.message);
       });
   }
 
-  // --- BỔ SUNG CÁC HÀM BỊ THIẾU (FIX LỖI) ---
-  
   checkBusinessExists(id: string): boolean {
-    // Kiểm tra xem đã có dữ liệu products của shop này chưa
-    return localStorage.getItem(`${id}_products`) !== null;
+     // Hàm này chỉ dùng để check local state sau khi đã init
+     return !!this.cache[`${id}_${BASE_KEYS.PRODUCTS}`];
   }
 
   setBusinessId(id: string) {
@@ -129,34 +166,41 @@ class Database {
   }
 
   initStartDate() {
-    const key = this.k(BASE_KEYS.START_DATE);
-    if (!localStorage.getItem(key)) {
-      localStorage.setItem(key, new Date().toISOString().split('T')[0]);
+    // Chỉ init nếu trên server chưa có (cache chưa có)
+    const key = BASE_KEYS.START_DATE;
+    if (!this.load(key, null)) {
+       const date = new Date().toISOString().split('T')[0];
+       this.save(key, date);
     }
   }
 
   getStartDate(): string {
-    const key = this.k(BASE_KEYS.START_DATE);
-    return localStorage.getItem(key) || new Date().toISOString().split('T')[0];
+    return this.load(BASE_KEYS.START_DATE, new Date().toISOString().split('T')[0]);
   }
 
-  // --- GIỮ NGUYÊN TOÀN BỘ LOGIC TÍNH TOÁN CŨ DƯỚI ĐÂY ---
-  // (Chỉ thay đổi cơ chế load/save ở trên, logic dưới này y hệt file cũ của bạn)
+  // --- CÁC HÀM GET/SET LOGIC NGHIỆP VỤ (GIỮ NGUYÊN LOGIC, CHỈ GỌI LOAD/SAVE) ---
 
   getProducts(): Product[] {
     let products = this.load<Product[]>(BASE_KEYS.PRODUCTS, []);
     if (products.length === 0) {
-        products = SEED_PRODUCTS; // Load seed nếu rỗng
-        this.save(BASE_KEYS.PRODUCTS, products);
+        // Chỉ save seed data nếu thực sự chưa có gì (tránh ghi đè khi mạng lag)
+        // Logic ở đây: Trả về seed để hiển thị, nhưng chờ người dùng tương tác mới save
+        return SEED_PRODUCTS; 
     }
     return products;
+  }
+  
+  // Hàm này để init lần đầu cho shop mới
+  seedNewBusiness() {
+      this.save(BASE_KEYS.PRODUCTS, SEED_PRODUCTS);
+      this.save(BASE_KEYS.PARTNERS, SEED_PARTNERS);
+      this.save(BASE_KEYS.START_DATE, new Date().toISOString().split('T')[0]);
   }
 
   getPartners(type?: PartnerType): Partner[] {
     let partners = this.load<Partner[]>(BASE_KEYS.PARTNERS, []);
-    if (partners.length === 0) {
-        partners = SEED_PARTNERS;
-        this.save(BASE_KEYS.PARTNERS, partners);
+    if (partners.length === 0 && !this.checkBusinessExists(this.businessId)) {
+        return SEED_PARTNERS;
     }
     if (type) return partners.filter(p => p.type === type);
     return partners;
@@ -188,14 +232,11 @@ class Database {
     return this.load<PreOrder[]>(BASE_KEYS.PREORDERS, []).sort((a, b) => new Date(a.deliveryTime).getTime() - new Date(b.deliveryTime).getTime());
   }
 
-  // --- CRUD FUNCTIONS (WRITE) ---
-
-  saveBankSettings(settings: BankSettings) {
-    this.save(BASE_KEYS.BANK, settings);
-  }
-
+  // --- WRITE FUNCTIONS ---
+  saveBankSettings(settings: BankSettings) { this.save(BASE_KEYS.BANK, settings); }
+  
   saveProduct(product: Product) {
-    const products = this.getProducts();
+    const products = this.getProducts(); // Lấy bản mới nhất từ cache (đã sync)
     const index = products.findIndex(p => p.id === product.id);
     if (index >= 0) products[index] = product;
     else products.push(product);
@@ -247,17 +288,8 @@ class Database {
     }
   }
 
-  // --- LOGIC GIAO DỊCH (ASYNC) ---
-  // Lưu ý: Các hàm này vẫn giữ async để UI hiển thị loading
-
-  async createPurchase(
-    supplierId: string,
-    date: string,
-    // 👇 1. Cập nhật tham số nhận vào (thêm gross, tare, details)
-    lines: { productId: string; qtyCon: number; qtyKg: number; price: number; gross: number; tare: number; details: string }[],
-    extraCost: number,
-    paidAmount: number 
-  ) {
+  // --- TRANSACTION LOGIC ---
+  async createPurchase(supplierId: string, date: string, lines: any[], extraCost: number, paidAmount: number) {
     const products = this.getProducts();
     const partners = this.getPartners();
     const batches = this.getBatches(); 
@@ -269,14 +301,10 @@ class Database {
 
     const code = `IN-${date.replace(/-/g, '')}-${invoices.length + 1}`;
     let totalGoods = 0;
-    let totalWeight = 0; // Tính tổng cân để ghi chú
-
+    let totalWeight = 0;
     const invoiceLines: InvoiceLine[] = [];
     
-    lines.forEach(l => { 
-        totalGoods += l.qtyKg * l.price; 
-        totalWeight += l.qtyKg;
-    });
+    lines.forEach(l => { totalGoods += l.qtyKg * l.price; totalWeight += l.qtyKg; });
 
     const newBatches: Batch[] = lines.map((l, idx) => {
       const lineTotal = l.qtyKg * l.price;
@@ -287,7 +315,6 @@ class Database {
       const prod = products.find(p => p.id === l.productId);
       if (prod) prod.standardCost = l.price; 
 
-      // 👇 2. Lưu chi tiết vào dòng hóa đơn
       invoiceLines.push({
         productId: l.productId,
         productName: prod ? prod.name : 'Unknown',
@@ -296,9 +323,7 @@ class Database {
         unit: Unit.KG,
         price: l.price,
         amount: lineTotal,
-        gross: l.gross,   // Lưu tổng cân
-        tare: l.tare,     // Lưu bì
-        details: l.details // Lưu chi tiết mã cân
+        gross: l.gross, tare: l.tare, details: l.details
       });
 
       return {
@@ -326,28 +351,16 @@ class Database {
     
     const invoice: Invoice = {
       id: `inv-${Date.now()}`,
-      code,
-      type: 'IMPORT',
-      date,
-      partnerId: supplierId,
-      partnerName: supplier.name,
-      totalAmount,
-      paidAmount: totalAmount, 
-      debtAmount: 0,
-      lines: invoiceLines
+      code, type: 'IMPORT', date, partnerId: supplierId, partnerName: supplier.name,
+      totalAmount, paidAmount: totalAmount, debtAmount: 0, lines: invoiceLines
     };
 
     this.save(BASE_KEYS.BATCHES, [...batches, ...newBatches]);
     this.save(BASE_KEYS.INVOICES, [invoice, ...invoices]);
     
-    // 👇 3. Cập nhật dòng mô tả trong Sổ Quỹ cho chi tiết hơn
     const txn: CashTransaction = {
-      id: `txn-${Date.now()}`,
-      date: new Date().toISOString(),
-      type: TransactionType.EXPENSE,
-      amount: totalAmount,
-      description: `Nhập hàng: ${supplier.name} (${totalWeight.toFixed(1)}kg)`, // Thêm số cân vào tên giao dịch
-      refId: invoice.id
+      id: `txn-${Date.now()}`, date: new Date().toISOString(), type: TransactionType.EXPENSE,
+      amount: totalAmount, description: `Nhập hàng: ${supplier.name} (${totalWeight.toFixed(1)}kg)`, refId: invoice.id
     };
     this.save(BASE_KEYS.CASH, [txn, ...cash]);
 
@@ -355,12 +368,7 @@ class Database {
     return invoice;
   }
 
-  async createSale(
-    customerId: string,
-    date: string,
-    lines: { productId: string; productName?: string; qtyCon: number; qtyKg: number; price: number; unit: Unit }[],
-    paidAmount: number
-  ) {
+  async createSale(customerId: string, date: string, lines: any[], paidAmount: number) {
     const partners = this.getPartners();
     const batches = this.load<Batch[]>(BASE_KEYS.BATCHES, []);
     const invoices = this.getInvoices();
@@ -380,36 +388,17 @@ class Database {
       totalAmount += lineAmount;
 
       if (line.productId === 'MANUAL') {
-        invoiceLines.push({
-            productId: 'MANUAL',
-            productName: line.productName || 'Hàng ngoài',
-            qtyCon: line.qtyCon,
-            qtyKg: line.qtyKg,
-            unit: line.unit,
-            price: line.price,
-            amount: lineAmount
-        });
+        invoiceLines.push({ productId: 'MANUAL', productName: line.productName || 'Hàng ngoài', qtyCon: line.qtyCon, qtyKg: line.qtyKg, unit: line.unit, price: line.price, amount: lineAmount });
         continue;
       }
 
       const prod = products.find(p => p.id === line.productId)!;
-      invoiceLines.push({
-        productId: line.productId,
-        productName: prod.name,
-        qtyCon: line.qtyCon,
-        qtyKg: line.qtyKg,
-        unit: line.unit,
-        price: line.price,
-        amount: lineAmount
-      });
+      invoiceLines.push({ productId: line.productId, productName: prod.name, qtyCon: line.qtyCon, qtyKg: line.qtyKg, unit: line.unit, price: line.price, amount: lineAmount });
 
-      // FIFO Logic
       let remainingKgToDeduct = line.qtyKg;
       let remainingConToDeduct = line.qtyCon;
       
-      const productBatches = batches
-        .filter(b => b.productId === line.productId && b.status === 'OPEN')
-        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      const productBatches = batches.filter(b => b.productId === line.productId && b.status === 'OPEN').sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
       if (productBatches.length === 0) {
          const estCogs = prod.standardCost ? (line.qtyKg > 0 ? line.qtyKg * prod.standardCost : 0) : 0;
@@ -418,17 +407,13 @@ class Database {
 
       for (const batch of productBatches) {
         if (remainingKgToDeduct <= 0 && remainingConToDeduct <= 0) break;
-
         const takeKg = Math.min(batch.qtyRemKg, remainingKgToDeduct);
         const takeCon = Math.min(batch.qtyRemCon, remainingConToDeduct);
 
         if (takeKg > 0 || takeCon > 0) {
           totalCOGS += takeKg * batch.costPerKg;
-          batch.qtyRemKg -= takeKg;
-          batch.qtyRemCon -= takeCon;
-          remainingKgToDeduct -= takeKg;
-          remainingConToDeduct -= takeCon;
-
+          batch.qtyRemKg -= takeKg; batch.qtyRemCon -= takeCon;
+          remainingKgToDeduct -= takeKg; remainingConToDeduct -= takeCon;
           if (batch.qtyRemKg <= 0.1 && batch.qtyRemCon <= 0) batch.status = 'CLOSED';
         }
       }
@@ -436,32 +421,16 @@ class Database {
 
     const debtAmount = totalAmount - paidAmount;
     const invoice: Invoice = {
-      id: `inv-${Date.now()}`,
-      code,
-      type: 'EXPORT',
-      date,
-      partnerId: customerId,
-      partnerName: customer.name,
-      totalAmount,
-      paidAmount,
-      debtAmount,
-      lines: invoiceLines,
+      id: `inv-${Date.now()}`, code, type: 'EXPORT', date, partnerId: customerId, partnerName: customer.name,
+      totalAmount, paidAmount, debtAmount, lines: invoiceLines, cogs: totalCOGS,
       paymentMethod: debtAmount === totalAmount ? PaymentMethod.DEBT : (paidAmount > 0 ? PaymentMethod.CASH : undefined), 
-      cogs: totalCOGS
     };
 
     this.save(BASE_KEYS.BATCHES, batches);
     this.save(BASE_KEYS.INVOICES, [invoice, ...invoices]);
 
     if (paidAmount > 0) {
-      const txn: CashTransaction = {
-        id: `txn-${Date.now()}`,
-        date: new Date().toISOString(),
-        type: TransactionType.INCOME,
-        amount: paidAmount,
-        description: `Thu bán hàng: ${customer.name}`,
-        refId: invoice.id
-      };
+      const txn: CashTransaction = { id: `txn-${Date.now()}`, date: new Date().toISOString(), type: TransactionType.INCOME, amount: paidAmount, description: `Thu bán hàng: ${customer.name}`, refId: invoice.id };
       this.save(BASE_KEYS.CASH, [txn, ...cash]);
     }
 

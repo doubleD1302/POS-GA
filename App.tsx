@@ -13,25 +13,22 @@ import { Partner, PartnerType, BankSettings, Invoice, CashTransaction, PreOrder,
 function LoginScreen({ onLogin }: { onLogin: () => void }) {
   const [code, setCode] = useState('');
   const [isConfirming, setIsConfirming] = useState(false);
-  const [isLoading, setIsLoading] = useState(false); // Thêm trạng thái loading
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleLogin = async () => {
     if (code.length !== 6 || isNaN(Number(code))) {
       alert("Vui lòng nhập mã doanh nghiệp gồm 6 chữ số");
       return;
     }
-
-    setIsLoading(true); // Bắt đầu xoay xoay
-
+    setIsLoading(true);
     try {
-      // QUAN TRỌNG: Gọi hàm này để tải dữ liệu từ Supabase về máy
-      await db.init(code); 
+      // KIỂM TRA ONLINE TRƯỚC (QUAN TRỌNG)
+      const isOnline = await db.checkBusinessOnline(code);
       
-      const exists = db.checkBusinessExists(code);
-      if (!exists) {
-        setIsConfirming(true); // Nếu tải về mà vẫn chưa có thì hỏi tạo mới
+      if (!isOnline) {
+        setIsConfirming(true); // Chưa có trên server -> Hỏi tạo mới
       } else {
-        // Đã có dữ liệu -> Vào luôn
+        await db.init(code); // Có rồi -> Tải về và Sync
         onLogin();
       }
     } catch (error) {
@@ -44,8 +41,8 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
 
   const confirmCreate = async () => {
     setIsLoading(true);
-    await db.init(code); // Khởi tạo kết nối cho shop mới
-    db.initStartDate(); 
+    await db.init(code); // Kết nối
+    db.seedNewBusiness(); // TẠO DỮ LIỆU MẪU LÊN SERVER NGAY
     onLogin();
     setIsLoading(false);
   };
@@ -1031,12 +1028,23 @@ function PartnersPage() {
 export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [page, setPage] = useState('dashboard');
+  
+  // State dummy để ép render lại toàn bộ App khi DB thay đổi
+  const [lastUpdate, setLastUpdate] = useState(Date.now());
 
   useEffect(() => {
+    // Lắng nghe sự thay đổi từ db (Realtime sync)
+    db.subscribe(() => {
+      console.log("App received update signal, re-rendering...");
+      setLastUpdate(Date.now());
+    });
+
     const savedId = localStorage.getItem('gttd_current_business_id');
     if (savedId) {
-      db.setBusinessId(savedId);
-      setIsLoggedIn(true);
+      // Nếu đã từng đăng nhập, init lại để kết nối Realtime
+      db.init(savedId).then(() => {
+        setIsLoggedIn(true);
+      });
     }
   }, []);
 
