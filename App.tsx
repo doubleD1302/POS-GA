@@ -3,7 +3,7 @@ import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContai
 import Dashboard from './pages/Dashboard';
 import POS from './pages/POS';
 import Inventory from './pages/Inventory';
-import { ICONS, formatCurrency } from './constants';
+import { ICONS, formatCurrency, formatDate} from './constants';
 import { db } from './services/db';
 import { Button, Input, Select, Card, Modal } from './components/ui';
 import { Partner, PartnerType, BankSettings, Invoice, CashTransaction, PreOrder, PaymentMethod, Product, Gender } from './types';

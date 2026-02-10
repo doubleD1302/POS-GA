@@ -517,7 +517,7 @@ class Database {
 
       const payForThisInvoice = Math.min(inv.debtAmount, remainingPay);
       
-      inv.paidAmount = (inv.paidAmount || 0) + payForThisInvoice;
+      inv.paidAmount = (Number(inv.paidAmount) || 0) + payForThisInvoice;
       inv.debtAmount -= payForThisInvoice;
       
       // Cập nhật paymentMethod nếu trả hết
