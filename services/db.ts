@@ -585,6 +585,36 @@ class Database {
     await delay(300);
     return true;
   }
+
+  // --- HÀM MỚI: TẠO ĐIỀU CHỈNH KHO NHANH ---
+  async createDirectAdjustment(productId: string, gender: string, qtyKg: number, qtyCon: number) {
+    const batches = this.getBatches();
+    
+    const newBatch: Batch = {
+      id: `adj-quick-${Date.now()}`,
+      code: `ADJ-${new Date().toISOString().slice(0,10).replace(/-/g, '')}`,
+      productId: productId,
+      gender: gender as 'MALE' | 'FEMALE',
+      supplierId: 'INTERNAL',       
+      supplierName: 'ĐIỀU CHỈNH KHO', // Tên hiển thị khi sửa nhanh
+      date: new Date().toISOString().split('T')[0],
+      qtyInCon: qtyCon,
+      qtyInKg: qtyKg,
+      qtyRemCon: qtyCon, // Tồn = số vừa nhập
+      qtyRemKg: qtyKg,
+      baseCost: 0,        
+      extraCost: 0,       
+      totalCost: 0,
+      costPerKg: 0,
+      costPerCon: 0,
+      status: 'OPEN'
+    };
+
+    // Lưu lô mới vào danh sách
+    this.save(BASE_KEYS.BATCHES, [...batches, newBatch]);
+    await delay(200);
+    return true;
+  }
 }
 
 export const db = new Database();

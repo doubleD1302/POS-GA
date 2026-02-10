@@ -24,6 +24,10 @@ export default function Inventory() {
   const [editKg, setEditKg] = useState('');
   const [editCon, setEditCon] = useState('');
 
+  // --- THÊM STATE NÀY ---
+  // Dùng để lưu thông tin khi sửa kho cho sản phẩm chưa có lô nào
+  const [newAdjustmentInfo, setNewAdjustmentInfo] = useState<{pid: string, gender: string} | null>(null);
+
   // Batch List Modal (Khi sửa kho từ danh mục)
   const [isBatchListOpen, setIsBatchListOpen] = useState(false);
   const [selectedBatchesForEdit, setSelectedBatchesForEdit] = useState<Batch[]>([]);
@@ -90,28 +94,48 @@ export default function Inventory() {
     setIsBatchListOpen(false);
   }
 
-  const handleSaveBatch = () => {
-    if (!editingBatch) return;
+  const handleSaveBatch = async () => {
+    // Validate số liệu
     const kg = parseFloat(editKg);
     const con = parseInt(editCon);
     if (isNaN(kg) || isNaN(con)) return alert("Số liệu không hợp lệ");
 
-    db.updateBatch(editingBatch.id, { qtyRemKg: kg, qtyRemCon: con });
+    // TRƯỜNG HỢP 1: Sửa lô cũ (Logic cũ)
+    if (editingBatch) {
+       db.updateBatch(editingBatch.id, { qtyRemKg: kg, qtyRemCon: con });
+    } 
+    // TRƯỜNG HỢP 2: Tạo lô điều chỉnh mới (Logic mới)
+    else if (newAdjustmentInfo) {
+       await db.createDirectAdjustment(newAdjustmentInfo.pid, newAdjustmentInfo.gender, kg, con);
+    } 
+    else {
+       return;
+    }
+
     loadData();
     setIsBatchModalOpen(false);
+    setNewAdjustmentInfo(null); // Reset
   }
 
-  // Hàm mở danh sách batch để sửa từ tab Danh mục
+  // Hàm mở danh sách batch hoặc mở form tạo mới
   const handleEditStockFromCategory = (pid: string, gender: 'MALE' | 'FEMALE', pName: string) => {
       const targetBatches = batches.filter(b => b.productId === pid && b.status === 'OPEN' && (b.gender === gender || !b.gender));
       
       if (targetBatches.length === 0) {
-          alert("Hiện không có lô hàng nào còn tồn để sửa!");
+          // LOGIC MỚI: Không alert nữa, mà cho phép nhập mới luôn
+          if(window.confirm(`Chưa có lô hàng nào cho ${pName} (${gender === 'MALE' ? 'Trống' : 'Mái'}). Bạn muốn tạo tồn kho mới?`)) {
+             setNewAdjustmentInfo({ pid, gender }); // Lưu lại đang sửa cái gì
+             setEditingBatch(null); // Không có batch cũ
+             setEditKg('');
+             setEditCon('');
+             setIsBatchModalOpen(true);
+          }
           return;
       }
 
-      // Nếu chỉ có 1 lô, mở luôn sửa lô đó cho nhanh
+      // Nếu chỉ có 1 lô, mở luôn sửa lô đó
       if (targetBatches.length === 1) {
+          setNewAdjustmentInfo(null); // Reset
           handleOpenBatchEdit(targetBatches[0]);
       } else {
           // Nếu nhiều lô, hiện danh sách để chọn
