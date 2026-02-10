@@ -509,25 +509,46 @@ class Database {
     const partners = this.getPartners();
     const cashTxns = this.getCashTransactions();
 
-    // 1. Doanh thu hôm nay = Tổng tiền vào (INCOME) trong sổ quỹ hôm nay
-    // Bao gồm cả: Bán hàng tiền mặt + Khách trả nợ hôm nay
-    const todayTxns = cashTxns.filter(t => t.date.startsWith(today) && t.type === TransactionType.INCOME);
-    const revenueToday = todayTxns.reduce((sum, t) => sum + t.amount, 0);
-
-    // 2. Tính giá vốn (COGS) của các đơn hàng BÁN RA hôm nay
+    // 1. DOANH THU BÁN HÀNG (Sales Revenue) - Quan trọng: Tính cả nợ
+    // Lấy tất cả hóa đơn xuất (EXPORT) trong ngày
     const todayExportInvoices = invoices.filter(i => i.date === today && i.type === 'EXPORT');
+    const salesRevenueToday = todayExportInvoices.reduce((sum, i) => sum + i.totalAmount, 0);
+
+    // 2. GIÁ VỐN HÀNG BÁN (COGS)
+    // Code của bạn đã tính sẵn cogs trong createSale (rất tốt), chỉ cần cộng lại
     const realizedCogsToday = todayExportInvoices.reduce((sum, i) => sum + (i.cogs || 0), 0);
     
-    // 3. Lợi nhuận = Thực thu - Giá vốn
-    const profitToday = revenueToday - realizedCogsToday;
+    // 3. CHI PHÍ VẬN HÀNH (Operating Expenses)
+    // Là các khoản CHI không phải trả tiền nhập hàng (ví dụ: mua túi bóng, xăng xe, ăn uống...)
+    // Logic: Lấy transaction loại EXPENSE trong ngày, và KHÔNG có refId (vì nhập hàng có refId trỏ về Invoice)
+    const operatingExpensesToday = cashTxns
+        .filter(t => t.date.startsWith(today) && t.type === TransactionType.EXPENSE && !t.refId)
+        .reduce((sum, t) => sum + t.amount, 0);
 
+    // 4. LỢI NHUẬN RÒNG (Net Profit)
+    const profitToday = salesRevenueToday - realizedCogsToday - operatingExpensesToday;
+
+    // --- CÁC CHỈ SỐ KHÁC (GIỮ NGUYÊN HOẶC TINH CHỈNH) ---
+    
+    // Tổng nợ phải thu
     const receivables = partners.filter(p => p.type === PartnerType.CUSTOMER).reduce((sum, p) => sum + p.debt, 0);
+    
+    // Vốn nhập hàng tích lũy
     const importCapital = invoices.filter(i => i.type === 'IMPORT').reduce((sum, i) => sum + i.totalAmount, 0);
     
+    // Nhập hàng hôm nay
     const todayImportInvoices = invoices.filter(i => i.date === today && i.type === 'IMPORT');
     const importToday = todayImportInvoices.reduce((sum, i) => sum + i.totalAmount, 0);
 
-    return { revenueToday, profitToday, receivables, importCapital, importToday };
+    // Lưu ý: revenueToday ở Dashboard hiển thị, bạn có thể chọn hiển thị "Doanh số bán" hoặc "Thực thu". 
+    // Ở đây tôi đề xuất hiển thị "Doanh số bán" (Sales Revenue) để khớp với Lợi nhuận.
+    return { 
+        revenueToday: salesRevenueToday, // Đã đổi từ tiền mặt sang doanh số
+        profitToday, 
+        receivables, 
+        importCapital, 
+        importToday 
+    };
   }
 
   // --- TÍNH NĂNG MỚI: THANH TOÁN NỢ ---
