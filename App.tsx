@@ -146,16 +146,19 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
   const [gender, setGender] = useState<'MALE'|'FEMALE'>('MALE');
 
   useEffect(() => {
-    const p = products.find(x => x.id === currentPid);
-    if (p) {
-        // Load cả 2 giá vào bộ nhớ tạm khi chọn Gà
-        setPriceMale(p.costMale ? p.costMale.toString() : '');
-        setPriceFemale(p.costFemale ? p.costFemale.toString() : '');
-    } else {
-        setPriceMale('');
-        setPriceFemale('');
+    // 1. Tải danh sách Gà ngay lập tức
+    const prodList = db.getProducts();
+    setProducts(prodList);
+
+    // 2. Tải danh sách Nhà cung cấp
+    const supList = db.getPartners(PartnerType.SUPPLIER);
+    setSuppliers(supList);
+    
+    // Tự động chọn nhà cung cấp đầu tiên nếu có
+    if (supList.length > 0) {
+        setSupplierId(supList[0].id);
     }
-  }, [currentPid, products]);
+  }, []);
 
 
   const loadSuppliers = () => {
@@ -167,6 +170,11 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
   const loadProducts = () => {
     setProducts(db.getProducts());
   }
+
+  useEffect(() => {
+    loadProducts();
+    loadSuppliers();
+  }, []);
 
   // --- 1. LOGIC TÍNH TOÁN (Tự động tính mỗi khi weightList thay đổi) ---
   const totalGrossWeight = weightList.reduce((a, b) => a + b.w, 0);
