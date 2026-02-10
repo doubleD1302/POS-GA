@@ -79,3 +79,37 @@ export const Modal = ({ isOpen, onClose, title, children }: any) => {
     </div>
   );
 };
+// --- Thêm vào file components/ui.tsx ---
+
+export const SecureValue = ({ value, className = '' }: { value: React.ReactNode, className?: string }) => {
+  const [isRevealed, setIsRevealed] = React.useState(false);
+
+  const handleReveal = (e: React.MouseEvent) => {
+    e.stopPropagation(); 
+    
+    // Lấy mã doanh nghiệp hiện tại từ LocalStorage
+    const currentCode = localStorage.getItem('gttd_current_business_id');
+    
+    // Hiển thị hộp thoại nhập mã
+    const input = window.prompt("🔒 BẢO MẬT: Vui lòng nhập Mã Doanh Nghiệp để xem:");
+    
+    if (input === currentCode) {
+      setIsRevealed(true);
+    } else if (input !== null) {
+      alert("❌ Mã không đúng! Không thể hiển thị dữ liệu.");
+    }
+  };
+
+  if (isRevealed) {
+    return <span className={`animate-[fadeIn_0.5s] ${className}`}>{value}</span>;
+  }
+
+  return (
+    <button 
+      onClick={handleReveal} 
+      className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-gray-200 text-gray-600 hover:bg-gray-300 transition-colors border border-gray-300 shadow-sm cursor-pointer select-none"
+    >
+      👁 Hiện thông tin
+    </button>
+  );
+};

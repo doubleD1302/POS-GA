@@ -3,7 +3,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recha
 import { db } from '../services/db';
 import { DashboardStats } from '../types';
 import { formatCurrency, ICONS } from '../constants';
-import { StatCard, Button, Card } from '../components/ui';
+import { StatCard, Button, Card, SecureValue } from '../components/ui';
 
 // 👇 1. CẬP NHẬT DÒNG NÀY (Thêm onLogout vào props)
 export default function Dashboard({ navigate, onLogout }: { navigate: (page: string) => void, onLogout: () => void }) {
@@ -43,13 +43,27 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
 
       {/* Primary KPI */}
       <div className="grid grid-cols-2 gap-3">
-        <StatCard label="Lãi gộp hôm nay" value={formatCurrency(stats.profitToday)} color={stats.profitToday >= 0 ? "text-green-600" : "text-red-600"} subtext="Thực thu - Vốn hàng" />
+        {/* SỬA MỤC LÃI GỘP */}
+        <StatCard 
+          label="Lãi gộp hôm nay" 
+          value={<SecureValue value={formatCurrency(stats.profitToday)} className={stats.profitToday >= 0 ? "text-green-600" : "text-red-600"} />} 
+          // color để trống vì đã xử lý bên trong SecureValue
+          subtext="Thực thu - Vốn hàng" 
+        />
+        
+        {/* DOANH THU GIỮ NGUYÊN HOẶC ẨN TÙY BẠN (Ở đây tôi giữ nguyên theo yêu cầu là chỉ ẩn Lãi/Vốn) */}
         <StatCard label="Doanh thu (Thực thu)" value={formatCurrency(stats.revenueToday)} color="text-green-600" />
       </div>
 
        <div className="grid grid-cols-2 gap-3">
         <StatCard label="Khách nợ (Phải thu)" value={formatCurrency(stats.receivables)} color="text-orange-500" />
-        <StatCard label="Vốn nhập gà (Tổng)" value={formatCurrency(stats.importCapital)} color="text-blue-600" subtext="Tổng vốn đã bỏ ra" />
+        
+        {/* SỬA MỤC VỐN NHẬP GÀ */}
+        <StatCard 
+            label="Vốn nhập gà (Tổng)" 
+            value={<SecureValue value={formatCurrency(stats.importCapital)} className="text-blue-600" />} 
+            subtext="Tổng vốn đã bỏ ra" 
+        />
       </div>
 
       {/* Quick Actions */}

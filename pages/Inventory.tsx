@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { db } from '../services/db';
 import { Batch, Product } from '../types';
-import { Card, Button, Modal, Input } from '../components/ui';
+import { Card, Button, Modal, Input, SecureValue } from '../components/ui';
 import { formatCurrency, formatDate } from '../constants';
 
 export default function Inventory() {
@@ -159,9 +159,9 @@ export default function Inventory() {
                         {batch.supplierName && (
                           <div className="text-xs text-gray-500 italic mb-1">{batch.supplierName}</div>
                         )}
-                        <div className="text-xs text-brand-600 font-bold bg-brand-50 inline-block px-1 rounded">
-                          Vốn: {formatCurrency(batch.costPerKg)}/kg
-                        </div>
+                        <div className="text-xs text-brand-600 font-bold bg-brand-50 inline-block px-1 rounded flex items-center gap-1">
+                          Vốn: <SecureValue value={formatCurrency(batch.costPerKg)} />/kg
+                      </div>
                       </div>
                       <div className="text-right flex flex-col items-end">
                         <div className="font-bold text-gray-800 text-base">
@@ -187,9 +187,14 @@ export default function Inventory() {
                  <div className="font-bold text-gray-800 text-lg">{p.name}</div>
                  <div className="text-sm text-gray-600 flex gap-4 mt-1">
                     <span>Bán: <b className="text-blue-600">{formatCurrency(p.defaultPrice)}</b></span>
-                    <span>Nhập: <b className="text-orange-600">{p.standardCost ? formatCurrency(p.standardCost) : '_'}</b></span>
-                 </div>
-               </div>
+                    <span className="flex items-center gap-1">
+                      Nhập: 
+                        <b className="text-orange-600">
+                        {p.standardCost ? <SecureValue value={formatCurrency(p.standardCost)} /> : '_'}
+                       </b>
+                    </span>
+                  </div>
+                  </div>
                <div className="flex gap-2">
                  <button onClick={() => handleOpenModal(p)} className="p-2 text-blue-600 bg-blue-50 rounded hover:bg-blue-100">
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
