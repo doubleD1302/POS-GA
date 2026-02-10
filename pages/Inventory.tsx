@@ -188,7 +188,7 @@ export default function Inventory() {
                   
                   {/* CỘT GÀ TRỐNG */}
                   <div className="pr-2">
-                      <div className="text-center bg-blue-100 text-blue-800 text-[10px] font-black uppercase py-1 rounded mb-2">Gà Trống (Male)</div>
+                      <div className="text-center bg-blue-100 text-blue-800 text-[10px] font-black uppercase py-1 rounded mb-2">Gà Trống</div>
                       
                       {/* Giá */}
                       <div className="space-y-1 mb-3 text-sm">
@@ -219,7 +219,7 @@ export default function Inventory() {
 
                   {/* CỘT GÀ MÁI */}
                   <div className="pl-2">
-                      <div className="text-center bg-pink-100 text-pink-800 text-[10px] font-black uppercase py-1 rounded mb-2">Gà Mái (Female)</div>
+                      <div className="text-center bg-pink-100 text-pink-800 text-[10px] font-black uppercase py-1 rounded mb-2">Gà Mái </div>
                       
                       {/* Giá */}
                       <div className="space-y-1 mb-3 text-sm">
@@ -287,14 +287,14 @@ export default function Inventory() {
           
           {/* Nhóm Gà Trống */}
           <div className="bg-blue-50 p-3 rounded border border-blue-100 grid grid-cols-2 gap-3">
-             <div className="col-span-2 text-xs font-bold text-blue-700 uppercase">Gà Trống (Male)</div>
+             <div className="col-span-2 text-xs font-bold text-blue-700 uppercase">Gà Trống</div>
              <Input label="Giá Nhập (Vốn)" type="number" value={costMale} onChange={(e: any) => setCostMale(e.target.value)} />
              <Input label="Giá Bán" type="number" value={priceMale} onChange={(e: any) => setPriceMale(e.target.value)} />
           </div>
 
           {/* Nhóm Gà Mái */}
            <div className="bg-pink-50 p-3 rounded border border-pink-100 grid grid-cols-2 gap-3">
-             <div className="col-span-2 text-xs font-bold text-pink-600 uppercase">Gà Mái (Female)</div>
+             <div className="col-span-2 text-xs font-bold text-pink-600 uppercase">Gà Mái </div>
              <Input label="Giá Nhập (Vốn)" type="number" value={costFemale} onChange={(e: any) => setCostFemale(e.target.value)} />
              <Input label="Giá Bán" type="number" value={priceFemale} onChange={(e: any) => setPriceFemale(e.target.value)} />
           </div>
