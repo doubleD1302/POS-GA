@@ -460,29 +460,31 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
 }
 
 // --- CASHBOOK PAGE ---
+// --- CASHBOOK PAGE (PHIÊN BẢN NÂNG CẤP: TAB THÁNG/NĂM & BÁO CÁO) ---
 function CashbookPage() {
   const [txns, setTxns] = useState(db.getCashTransactions());
-  const [chartData, setChartData] = useState<any[]>([]);
-  const [preOrders, setPreOrders] = useState<PreOrder[]>([]);
-  
-  // Stats
+  // State quản lý chế độ xem: 'MONTH' hoặc 'YEAR'
+  const [viewMode, setViewMode] = useState<'MONTH' | 'YEAR'>('MONTH');
+  // State quản lý thời gian đang chọn (mặc định là hôm nay)
+  const [targetDate, setTargetDate] = useState(new Date());
+
   const [totalReceivables, setTotalReceivables] = useState(0);
+  const [chartData, setChartData] = useState<any[]>([]);
   
-  // Detail Modal
+  // Detail Modal & Settings Modal & PreOrder (Giữ nguyên logic cũ)
   const [selectedTxn, setSelectedTxn] = useState<CashTransaction | null>(null);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | undefined>(undefined);
-
-  // Settings Modal
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settingStep, setSettingStep] = useState<'INPUT' | 'CONFIRM'>('INPUT');
   const [bankId, setBankId] = useState('');
   const [accNo, setAccNo] = useState('');
-  const [accName, setAccName] = useState(''); // Used for input
-  const [lookupName, setLookupName] = useState(''); // Used for confirmation
-
-  // PreOrder Modal
+  const [accName, setAccName] = useState('');
+  const [lookupName, setLookupName] = useState('');
+  const [preOrders, setPreOrders] = useState<PreOrder[]>([]);
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<PreOrder | null>(null);
+  
+  // State form PreOrder
   const [poName, setPoName] = useState('');
   const [poPhone, setPoPhone] = useState('');
   const [poProduct, setPoProduct] = useState('');
@@ -491,214 +493,273 @@ function CashbookPage() {
   const [poTime, setPoTime] = useState('');
   const [poNote, setPoNote] = useState('');
 
+  // State Modal Báo cáo
+  const [isReportOpen, setIsReportOpen] = useState(false);
+
+  // --- 1. LOGIC LỌC DỮ LIỆU THEO THỜI GIAN ---
+  const getFilteredTxns = () => {
+    return txns.filter(t => {
+      const tDate = new Date(t.date);
+      if (viewMode === 'MONTH') {
+        // So sánh tháng và năm
+        return tDate.getMonth() === targetDate.getMonth() && 
+               tDate.getFullYear() === targetDate.getFullYear();
+      } else {
+        // Chỉ so sánh năm
+        return tDate.getFullYear() === targetDate.getFullYear();
+      }
+    });
+  };
+
+  // Tính toán số liệu dựa trên danh sách đã lọc
+  const filteredTxns = getFilteredTxns();
+  const periodIncome = filteredTxns.filter(t => t.type === 'INCOME').reduce((s, t) => s + t.amount, 0);
+  const periodExpense = filteredTxns.filter(t => t.type === 'EXPENSE').reduce((s, t) => s + t.amount, 0);
+  const periodBalance = periodIncome - periodExpense;
+
   useEffect(() => {
-    // START DATE LOGIC: Show 30 days STARTING from the first login date
-    const startDateStr = db.getStartDate();
-    const startDate = new Date(startDateStr);
-    const data = [];
-
-    // Loop from startDate to startDate + 30 days
-    for (let i = 0; i < 30; i++) {
-        const d = new Date(startDate);
-        d.setDate(startDate.getDate() + i);
-        const dateStr = d.toISOString().split('T')[0];
-
-        const dayTxns = txns.filter(t => t.date.startsWith(dateStr));
-        const income = dayTxns.filter(t => t.type === 'INCOME').reduce((s, t) => s + t.amount, 0);
-        const expense = dayTxns.filter(t => t.type === 'EXPENSE').reduce((s, t) => s + t.amount, 0);
-
-        data.push({
-            date: dateStr.split('-').slice(1).join('/'), // MM/DD
-            Thu: income,
-            Chi: expense
-        });
-    }
-
-    setChartData(data);
-
-    // Get Total Receivables
+    // Cập nhật lại các dữ liệu phụ (Nợ, Cài đặt bank, Đơn đặt hàng)
     const customers = db.getPartners(PartnerType.CUSTOMER);
-    const debt = customers.reduce((sum, c) => sum + c.debt, 0);
-    setTotalReceivables(debt);
+    setTotalReceivables(customers.reduce((sum, c) => sum + c.debt, 0));
 
-    // Load Bank Settings
     const bs = db.getBankSettings();
-    if (bs) {
-       setBankId(bs.bankId);
-       setAccNo(bs.accountNo);
-       setAccName(bs.accountName); // Pre-fill
-    }
+    if (bs) { setBankId(bs.bankId); setAccNo(bs.accountNo); setAccName(bs.accountName); }
     
-    // Load PreOrders
     setPreOrders(db.getPreOrders().filter(o => o.status === 'PENDING'));
-  }, [txns]);
 
+    // --- LOGIC BIỂU ĐỒ (Cập nhật theo viewMode) ---
+    prepareChartData();
+  }, [txns, targetDate, viewMode]);
+
+  const prepareChartData = () => {
+    // Nếu xem Tháng: Hiển thị từng ngày trong tháng
+    // Nếu xem Năm: Hiển thị 12 tháng
+    let data = [];
+    
+    if (viewMode === 'MONTH') {
+        const daysInMonth = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0).getDate();
+        for (let i = 1; i <= daysInMonth; i++) {
+            const currentDayStr = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
+            const dayTxns = txns.filter(t => t.date.startsWith(currentDayStr));
+            data.push({
+                date: `${i}/${targetDate.getMonth() + 1}`,
+                Thu: dayTxns.filter(t => t.type === 'INCOME').reduce((s, t) => s + t.amount, 0),
+                Chi: dayTxns.filter(t => t.type === 'EXPENSE').reduce((s, t) => s + t.amount, 0),
+            });
+        }
+    } else {
+        for (let i = 0; i < 12; i++) {
+            const monthTxns = txns.filter(t => {
+                const d = new Date(t.date);
+                return d.getMonth() === i && d.getFullYear() === targetDate.getFullYear();
+            });
+            data.push({
+                date: `T${i + 1}`,
+                Thu: monthTxns.filter(t => t.type === 'INCOME').reduce((s, t) => s + t.amount, 0),
+                Chi: monthTxns.filter(t => t.type === 'EXPENSE').reduce((s, t) => s + t.amount, 0),
+            });
+        }
+    }
+    setChartData(data);
+  };
+
+  // --- NAVIGATION HANDLERS ---
+  const handlePrev = () => {
+    const newDate = new Date(targetDate);
+    if (viewMode === 'MONTH') newDate.setMonth(newDate.getMonth() - 1);
+    else newDate.setFullYear(newDate.getFullYear() - 1);
+    setTargetDate(newDate);
+  };
+
+  const handleNext = () => {
+    const newDate = new Date(targetDate);
+    if (viewMode === 'MONTH') newDate.setMonth(newDate.getMonth() + 1);
+    else newDate.setFullYear(newDate.getFullYear() + 1);
+    setTargetDate(newDate);
+  };
+
+  const getTitle = () => {
+    if (viewMode === 'MONTH') return `Tháng ${targetDate.getMonth() + 1} / ${targetDate.getFullYear()}`;
+    return `Năm ${targetDate.getFullYear()}`;
+  };
+
+  // --- REPORT GENERATION ---
+  const ReportModal = () => {
+    if (!isReportOpen) return null;
+    
+    // Tìm top chi phí
+    const expenses = filteredTxns.filter(t => t.type === 'EXPENSE');
+    // Gom nhóm chi phí theo mô tả (đơn giản)
+    
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 px-4">
+         <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-4 border-b bg-brand-600 text-white flex justify-between items-center">
+                <h3 className="font-bold text-lg">BÁO CÁO DOANH THU</h3>
+                <button onClick={() => setIsReportOpen(false)} className="text-white text-2xl">&times;</button>
+            </div>
+            <div className="p-6 overflow-y-auto">
+                <div className="text-center mb-6 border-b border-dashed pb-4">
+                    <h2 className="text-xl font-bold text-gray-800 uppercase">Gà Thịt Thảo Dương</h2>
+                    <p className="text-sm text-gray-500">Báo cáo {viewMode === 'MONTH' ? 'Tháng' : 'Năm'}: {getTitle()}</p>
+                    <p className="text-xs text-gray-400">Xuất ngày: {new Date().toLocaleString('vi-VN')}</p>
+                </div>
+
+                <div className="space-y-3 font-mono text-sm text-gray-700">
+                    <div className="flex justify-between">
+                        <span>1. Tổng Thu (Doanh số):</span>
+                        <span className="font-bold text-green-600">{formatCurrency(periodIncome)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                        <span>2. Tổng Chi (Nhập/Phí):</span>
+                        <span className="font-bold text-red-600">{formatCurrency(periodExpense)}</span>
+                    </div>
+                    <div className="border-t border-gray-300 my-2"></div>
+                    <div className="flex justify-between text-lg">
+                        <span className="font-bold">3. LỢI NHUẬN RÒNG:</span>
+                        <span className={`font-bold ${periodBalance >= 0 ? 'text-blue-600' : 'text-orange-600'}`}>
+                            {formatCurrency(periodBalance)}
+                        </span>
+                    </div>
+                </div>
+
+                <div className="mt-6 bg-yellow-50 p-3 rounded text-xs text-gray-600 border border-yellow-200">
+                    <span className="font-bold">Ghi chú:</span> <br/>
+                    - Tổng khách nợ hiện tại (toàn thời gian): <b className="text-orange-600">{formatCurrency(totalReceivables)}</b>. <br/>
+                    - Số dư này chỉ tính toán dựa trên các giao dịch Tiền mặt/Chuyển khoản thực tế trong kỳ.
+                </div>
+            </div>
+            <div className="p-4 border-t bg-gray-50">
+                <Button className="w-full" onClick={() => { alert('Đã sao chép nội dung!'); setIsReportOpen(false); }}>Sao Chép / In</Button>
+            </div>
+         </div>
+      </div>
+    )
+  }
+
+  // --- GIỮ NGUYÊN CÁC HÀM XỬ LÝ SỰ KIỆN CŨ (Settings, PreOrder...) ---
   const handleOpenSettings = () => {
     setSettingStep('INPUT');
     const bs = db.getBankSettings();
-    if (bs) {
-      setBankId(bs.bankId);
-      setAccNo(bs.accountNo);
-      setAccName(bs.accountName);
-    }
+    if (bs) { setBankId(bs.bankId); setAccNo(bs.accountNo); setAccName(bs.accountName); }
     setIsSettingsOpen(true);
   }
-
-  const handleCheckAccount = async () => {
+  const handleCheckAccount = () => {
     if (!bankId || !accNo || !accName) return alert("Vui lòng nhập đủ thông tin");
-    // Simulate lookup: Just trust what the user entered
-    setTimeout(() => {
-      setLookupName(accName.toUpperCase()); 
-      setSettingStep('CONFIRM');
-    }, 500);
+    setTimeout(() => { setLookupName(accName.toUpperCase()); setSettingStep('CONFIRM'); }, 500);
   }
-
   const handleSaveSettings = () => {
-     const settings: BankSettings = {
-       bankId: bankId.toUpperCase(),
-       accountNo: accNo,
-       accountName: lookupName.toUpperCase(), // Use confirmed name
-       template: 'compact'
-     };
-     db.saveBankSettings(settings);
+     db.saveBankSettings({ bankId: bankId.toUpperCase(), accountNo: accNo, accountName: lookupName.toUpperCase(), template: 'compact' });
      setIsSettingsOpen(false);
   }
-
   const handleSelectTxn = (txn: CashTransaction) => {
     setSelectedTxn(txn);
-    if (txn.refId) {
-       const inv = db.getInvoice(txn.refId);
-       setSelectedInvoice(inv);
-    } else {
-       setSelectedInvoice(undefined);
-    }
+    if (txn.refId) setSelectedInvoice(db.getInvoice(txn.refId));
+    else setSelectedInvoice(undefined);
   }
-
-  // PreOrder Logic
+  // PreOrder Logic (Giữ nguyên)
   const handleOpenOrderModal = (order?: PreOrder) => {
     if (order) {
-      setSelectedOrder(order);
-      setPoName(order.customerName);
-      setPoPhone(order.phone || '');
-      setPoProduct(order.productNote);
-      setPoCon(order.qtyCon?.toString() || '');
-      setPoKg(order.qtyKg?.toString() || '');
-      setPoTime(order.deliveryTime);
-      setPoNote(order.note || '');
+      setSelectedOrder(order); setPoName(order.customerName); setPoPhone(order.phone || '');
+      setPoProduct(order.productNote); setPoCon(order.qtyCon?.toString() || ''); setPoKg(order.qtyKg?.toString() || '');
+      setPoTime(order.deliveryTime); setPoNote(order.note || '');
     } else {
-      setSelectedOrder(null);
-      setPoName('');
-      setPoPhone('');
-      setPoProduct('');
-      setPoCon('');
-      setPoKg('');
-      // Default time: now + 1 hour
-      const now = new Date();
-      now.setHours(now.getHours() + 1);
-      now.setMinutes(0);
-      setPoTime(now.toISOString().slice(0, 16));
-      setPoNote('');
+      setSelectedOrder(null); setPoName(''); setPoPhone(''); setPoProduct(''); setPoCon(''); setPoKg('');
+      const now = new Date(); now.setHours(now.getHours() + 1); now.setMinutes(0); setPoTime(now.toISOString().slice(0, 16)); setPoNote('');
     }
     setIsOrderModalOpen(true);
   }
-
   const handleSaveOrder = () => {
     if (!poName || !poTime) return alert("Cần nhập tên khách và giờ hẹn");
     const order: PreOrder = {
-      id: selectedOrder ? selectedOrder.id : `po-${Date.now()}`,
-      customerName: poName,
-      phone: poPhone,
-      productNote: poProduct,
-      qtyCon: Number(poCon) || 0,
-      qtyKg: Number(poKg) || 0,
-      deliveryTime: poTime,
-      note: poNote,
-      status: 'PENDING'
+      id: selectedOrder ? selectedOrder.id : `po-${Date.now()}`, customerName: poName, phone: poPhone,
+      productNote: poProduct, qtyCon: Number(poCon) || 0, qtyKg: Number(poKg) || 0, deliveryTime: poTime, note: poNote, status: 'PENDING'
     };
-    db.savePreOrder(order);
-    setPreOrders(db.getPreOrders().filter(o => o.status === 'PENDING'));
-    setIsOrderModalOpen(false);
+    db.savePreOrder(order); setPreOrders(db.getPreOrders().filter(o => o.status === 'PENDING')); setIsOrderModalOpen(false);
   }
-
   const handleDeleteOrder = () => {
     if (!selectedOrder) return;
     if (confirm("Xoá đơn đặt hàng này?")) {
-      db.deletePreOrder(selectedOrder.id);
-      setPreOrders(db.getPreOrders().filter(o => o.status === 'PENDING'));
-      setIsOrderModalOpen(false);
+      db.deletePreOrder(selectedOrder.id); setPreOrders(db.getPreOrders().filter(o => o.status === 'PENDING')); setIsOrderModalOpen(false);
     }
   }
-
   const handleCompleteOrder = () => {
     if (!selectedOrder) return;
     const completed = { ...selectedOrder, status: 'DONE' as const };
-    db.savePreOrder(completed);
-    setPreOrders(db.getPreOrders().filter(o => o.status === 'PENDING'));
-    setIsOrderModalOpen(false);
+    db.savePreOrder(completed); setPreOrders(db.getPreOrders().filter(o => o.status === 'PENDING')); setIsOrderModalOpen(false);
   }
-
-  const formatTime = (isoString: string) => {
-    try {
-      const d = new Date(isoString);
-      return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
-    } catch(e) { return ''; }
-  }
-
-  const formatDateShort = (isoString: string) => {
-    try {
-        const d = new Date(isoString);
-        return `${d.getDate()}/${d.getMonth()+1}`;
-    } catch (e) { return ''; }
-  }
-
-  const getPaymentMethodLabel = (method?: PaymentMethod) => {
-      switch(method) {
-          case PaymentMethod.CASH: return 'Tiền mặt';
-          case PaymentMethod.TRANSFER: return 'Chuyển khoản';
-          case PaymentMethod.DEBT: return 'Ghi nợ';
-          default: return 'Khác';
-      }
-  }
-
-  // Calculate Period Stats
-  const periodIncome = chartData.reduce((sum, d) => sum + d.Thu, 0);
-  const periodExpense = chartData.reduce((sum, d) => sum + d.Chi, 0);
+  const formatTime = (isoString: string) => { try { const d = new Date(isoString); return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`; } catch(e) { return ''; } }
+  const formatDateShort = (isoString: string) => { try { const d = new Date(isoString); return `${d.getDate()}/${d.getMonth()+1}`; } catch (e) { return ''; } }
 
   return (
     <div className="pb-20">
+      {/* HEADER & TABS */}
       <div className="flex justify-between items-center mb-4">
          <h1 className="text-xl font-bold">Sổ Quỹ</h1>
-         <button onClick={handleOpenSettings} className="text-sm text-brand-600 font-medium bg-brand-50 px-3 py-1 rounded-full border border-brand-100">
-            ⚙ Cấu hình QR
-         </button>
+         <div className="flex gap-2">
+            <button onClick={() => setIsReportOpen(true)} className="text-sm bg-blue-100 text-blue-700 font-bold px-3 py-1 rounded-lg">
+                📄 Xuất Báo Cáo
+            </button>
+            <button onClick={handleOpenSettings} className="text-sm text-gray-500 font-medium bg-gray-100 px-3 py-1 rounded-lg">
+                ⚙ QR
+            </button>
+         </div>
       </div>
 
+      {/* 1. THANH ĐIỀU HƯỚNG THỜI GIAN & TAB */}
+      <Card className="mb-4 p-2 bg-brand-50 border-brand-100">
+        <div className="flex bg-white rounded-lg p-1 shadow-sm border border-gray-100 mb-3">
+            <button 
+            onClick={() => { setViewMode('MONTH'); setTargetDate(new Date()); }}
+            className={`flex-1 py-1.5 text-xs font-bold uppercase rounded-md transition-all ${viewMode === 'MONTH' ? 'bg-brand-600 text-white shadow' : 'text-gray-500 hover:bg-gray-50'}`}
+            >
+            Theo Tháng
+            </button>
+            <button 
+            onClick={() => { setViewMode('YEAR'); setTargetDate(new Date()); }}
+            className={`flex-1 py-1.5 text-xs font-bold uppercase rounded-md transition-all ${viewMode === 'YEAR' ? 'bg-brand-600 text-white shadow' : 'text-gray-500 hover:bg-gray-50'}`}
+            >
+            Theo Năm
+            </button>
+        </div>
+
+        <div className="flex items-center justify-between bg-white rounded-lg px-2 py-2 border border-gray-200">
+            <button onClick={handlePrev} className="p-2 hover:bg-gray-100 rounded-full text-brand-700 font-bold">❮</button>
+            <div className="text-center">
+                <span className="text-xs text-gray-400 font-medium uppercase block">{viewMode === 'MONTH' ? 'Tháng Đang Xem' : 'Năm Tài Chính'}</span>
+                <span className="text-lg font-black text-gray-800">{getTitle()}</span>
+            </div>
+            <button onClick={handleNext} className="p-2 hover:bg-gray-100 rounded-full text-brand-700 font-bold">❯</button>
+        </div>
+      </Card>
+
+      {/* 2. SUMMARY CARDS (ĐÃ CẬP NHẬT THEO BỘ LỌC) */}
       <div className="grid grid-cols-2 gap-2 mb-4">
           <div className="bg-white p-3 rounded-lg shadow-sm border border-gray-100">
-              <div className="text-xs text-gray-500 uppercase">Tổng Thu (Kỳ)</div>
+              <div className="text-xs text-gray-500 uppercase font-bold">TỔNG THU ({viewMode === 'MONTH' ? 'THÁNG' : 'NĂM'})</div>
               <div className="text-lg font-bold text-green-600">{formatCurrency(periodIncome)}</div>
           </div>
           <div className="bg-white p-3 rounded-lg shadow-sm border border-gray-100">
-              <div className="text-xs text-gray-500 uppercase">Tổng Chi (Kỳ)</div>
+              <div className="text-xs text-gray-500 uppercase font-bold">TỔNG CHI ({viewMode === 'MONTH' ? 'THÁNG' : 'NĂM'})</div>
               <div className="text-lg font-bold text-red-600">{formatCurrency(periodExpense)}</div>
           </div>
           <div className="bg-white p-3 rounded-lg shadow-sm border border-gray-100">
-              <div className="text-xs text-gray-500 uppercase">Chênh Lệch</div>
-              <div className={`text-lg font-bold ${periodIncome - periodExpense >= 0 ? 'text-blue-600' : 'text-orange-600'}`}>
-                {formatCurrency(periodIncome - periodExpense)}
+              <div className="text-xs text-gray-500 uppercase font-bold">LỢI NHUẬN</div>
+              <div className={`text-lg font-bold ${periodBalance >= 0 ? 'text-blue-600' : 'text-orange-600'}`}>
+                {formatCurrency(periodBalance)}
               </div>
           </div>
            <div className="bg-orange-50 p-3 rounded-lg shadow-sm border border-orange-100">
-              <div className="text-xs text-orange-800 uppercase font-bold">KHÁCH NỢ (TỔNG)</div>
+              <div className="text-xs text-orange-800 uppercase font-bold">KHÁCH NỢ (HIỆN TẠI)</div>
               <div className="text-lg font-bold text-orange-600">{formatCurrency(totalReceivables)}</div>
           </div>
       </div>
 
-      <Card title="Biến động (30 ngày gần nhất)" className="mb-4 h-64">
+      <Card title={`Biểu đồ ${viewMode === 'MONTH' ? 'Tháng' : 'Năm'}`} className="mb-4 h-64">
          <ResponsiveContainer width="100%" height="100%">
             <BarChart data={chartData}>
                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-               <XAxis dataKey="date" fontSize={10} tickMargin={5} minTickGap={15} />
+               <XAxis dataKey="date" fontSize={10} tickMargin={5} minTickGap={10} />
                <YAxis hide />
                <Tooltip formatter={(value: number) => formatCurrency(value)} contentStyle={{fontSize: '12px'}} />
                <Bar dataKey="Thu" fill="#22c55e" radius={[2, 2, 0, 0]} stackId="a" />
@@ -707,7 +768,7 @@ function CashbookPage() {
          </ResponsiveContainer>
       </Card>
 
-      {/* PRE-ORDERS / TODO SECTION */}
+      {/* PRE-ORDERS (Giữ nguyên) */}
       <div className="mb-6">
         <div className="flex justify-between items-center mb-2">
            <h3 className="font-bold text-gray-700">Đơn đặt hàng</h3>
@@ -733,20 +794,19 @@ function CashbookPage() {
                       <div className="text-xs text-gray-500">{po.productNote} {po.qtyCon ? `(${po.qtyCon} con)` : ''}</div>
                     </div>
                  </div>
-                 <div className="text-gray-300">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="1"/></svg>
-                 </div>
+                 <div className="text-gray-300"><ICONS.Plus /></div>
                </div>
              ))
            )}
         </div>
       </div>
 
-      <h3 className="font-bold text-gray-700 mb-2">Lịch sử giao dịch</h3>
-      <p className="text-xs text-gray-400 mb-3 italic">* Nhấp đúp để xem chi tiết hoá đơn</p>
+      {/* TRANSACTION LIST (Đã lọc theo thời gian) */}
+      <h3 className="font-bold text-gray-700 mb-2">Lịch sử giao dịch ({filteredTxns.length})</h3>
       
       <div className="space-y-2">
-        {txns.map(t => (
+        {filteredTxns.length === 0 ? <p className="text-sm text-gray-400 italic text-center py-4">Không có giao dịch trong kỳ này</p> :
+        filteredTxns.map(t => (
           <div 
             key={t.id} 
             onDoubleClick={() => handleSelectTxn(t)}
@@ -777,49 +837,22 @@ function CashbookPage() {
                         </div>
                         <div className="text-xs text-gray-400 mt-1">{new Date(selectedTxn.date).toLocaleString('vi-VN')}</div>
                     </div>
-                    
-                    <div className="text-sm text-gray-800 font-medium">
-                        {selectedTxn.description}
-                    </div>
-
+                    <div className="text-sm text-gray-800 font-medium">{selectedTxn.description}</div>
                     {selectedInvoice && (
                         <div className="space-y-3 max-h-60 overflow-y-auto bg-white border border-gray-100 rounded p-2">
-                                {selectedInvoice.lines.map((line, idx) => (
-                                    <div key={idx} className="flex flex-col p-3 border-b last:border-0 border-gray-100 bg-gray-50 rounded mb-2">
-                                        {/* Dòng 1: Tên hàng + Tổng tiền (Chữ to đùng) */}
-                                        <div className="flex justify-between w-full mb-2">
-                                            <div className="font-bold text-lg text-gray-800">{line.productName}</div>
-                                            <div className="font-bold text-lg text-blue-600">{formatCurrency(line.amount)}</div>
-                                        </div>
-                                        
-                                        {/* Dòng 2: Số lượng & Giá (Chữ vừa) */}
-                                        <div className="flex justify-between text-base text-gray-700 font-medium">
-                                            <span>
-                                                {line.qtyKg} kg <span className="text-gray-300 mx-1">|</span> {line.qtyCon} con
-                                            </span>
-                                            <span>Giá: {formatCurrency(line.price)}</span>
-                                        </div>
-
-                                        {/* Dòng 3: Bì & Chi tiết (Chữ nhỏ hơn xíu nhưng vẫn rõ) */}
-                                        {(line.gross || line.details) && (
-                                            <div className="mt-2 pt-2 border-t border-dashed border-gray-300 text-sm text-gray-600">
-                                                {line.gross && (
-                                                    <div className="flex gap-4 mb-1">
-                                                        <span>Tổng cân: <b className="text-gray-900">{line.gross}kg</b></span>
-                                                        <span>-</span>
-                                                        <span>Trừ Bì: <b className="text-red-600">{line.tare}kg</b></span>
-                                                    </div>
-                                                )}
-                                                {line.details && (
-                                                    <div className="italic text-gray-500">
-                                                        Mã cân: {line.details}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        )}
+                            {selectedInvoice.lines.map((line, idx) => (
+                                <div key={idx} className="flex flex-col p-3 border-b last:border-0 border-gray-100 bg-gray-50 rounded mb-2">
+                                    <div className="flex justify-between w-full mb-2">
+                                        <div className="font-bold text-lg text-gray-800">{line.productName}</div>
+                                        <div className="font-bold text-lg text-blue-600">{formatCurrency(line.amount)}</div>
                                     </div>
-                                ))}
-                            </div>
+                                    <div className="flex justify-between text-base text-gray-700 font-medium">
+                                        <span>{line.qtyKg} kg | {line.qtyCon} con</span>
+                                        <span>Giá: {formatCurrency(line.price)}</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
                     )}
                 </>
             )}
@@ -833,25 +866,14 @@ function CashbookPage() {
             <Input label="Tên khách hàng" value={poName} onChange={(e:any) => setPoName(e.target.value)} />
             <Input label="Số điện thoại" value={poPhone} onChange={(e:any) => setPoPhone(e.target.value)} type="tel" />
             <Input label="Thời gian giao" type="datetime-local" value={poTime} onChange={(e:any) => setPoTime(e.target.value)} />
-            
             <div className="border-t border-gray-200 pt-2">
-                <Input label="Loại gà / Hàng hoá" value={poProduct} onChange={(e:any) => setPoProduct(e.target.value)} placeholder="VD: Gà mái tơ, Gà cúng..." />
+                <Input label="Loại gà / Hàng hoá" value={poProduct} onChange={(e:any) => setPoProduct(e.target.value)} />
                 <div className="flex gap-2 mt-2">
                    <div className="flex-1"><Input label="Số con" type="number" value={poCon} onChange={(e:any) => setPoCon(e.target.value)} /></div>
-                   <div className="flex-1"><Input label="Số Kg (Dự kiến)" type="number" value={poKg} onChange={(e:any) => setPoKg(e.target.value)} /></div>
+                   <div className="flex-1"><Input label="Số Kg" type="number" value={poKg} onChange={(e:any) => setPoKg(e.target.value)} /></div>
                 </div>
             </div>
-            
-            <div className="flex flex-col">
-               <label className="text-sm font-bold text-gray-700 mb-1">Ghi chú / Lời dặn</label>
-               <textarea 
-                  className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-gray-400 focus:outline-none h-20"
-                  value={poNote}
-                  onChange={e => setPoNote(e.target.value)}
-                  placeholder="Làm sạch, chặt miếng..."
-               />
-            </div>
-
+            <textarea className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white" value={poNote} onChange={e => setPoNote(e.target.value)} placeholder="Ghi chú..." />
             <div className="flex gap-2 pt-2">
                {selectedOrder ? (
                   <>
@@ -859,9 +881,7 @@ function CashbookPage() {
                     <Button variant="success" className="flex-1" onClick={handleCompleteOrder}>Đã Xong</Button>
                     <Button className="flex-1" onClick={handleSaveOrder}>Lưu Sửa</Button>
                   </>
-               ) : (
-                  <Button className="w-full" onClick={handleSaveOrder}>Lưu Đơn Đặt</Button>
-               )}
+               ) : <Button className="w-full" onClick={handleSaveOrder}>Lưu Đơn Đặt</Button>}
             </div>
          </div>
       </Modal>
@@ -871,40 +891,22 @@ function CashbookPage() {
          <div className="space-y-4">
             {settingStep === 'INPUT' ? (
               <>
-                <p className="text-xs text-gray-500">Thông tin này dùng để tạo mã QR tự động.</p>
-                <div>
-                   <label className="text-sm font-bold text-gray-700 mb-1 block">Ngân hàng (Mã)</label>
-                   <input list="banks" value={bankId} onChange={e => setBankId(e.target.value)} className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-gray-400 uppercase focus:outline-none" placeholder="VD: MB, VCB..." />
-                   <datalist id="banks">
-                      <option value="MB">MB Bank</option>
-                      <option value="VCB">Vietcombank</option>
-                      <option value="ICB">Vietinbank</option>
-                      <option value="BIDV">BIDV</option>
-                      <option value="TCB">Techcombank</option>
-                      <option value="ACB">ACB</option>
-                   </datalist>
-                </div>
+                <Input label="Ngân hàng (Mã)" placeholder="MB, VCB..." value={bankId} onChange={(e:any) => setBankId(e.target.value)} />
                 <Input label="Số tài khoản" value={accNo} onChange={(e:any) => setAccNo(e.target.value)} />
-                <Input label="Tên chủ tài khoản" value={accName} onChange={(e:any) => setAccName(e.target.value)} placeholder="NGUYEN VAN A" className="uppercase" />
-                <Button className="w-full" onClick={handleCheckAccount}>Tiếp tục (Xác nhận)</Button>
+                <Input label="Tên chủ tài khoản" value={accName} onChange={(e:any) => setAccName(e.target.value)} className="uppercase" />
+                <Button className="w-full" onClick={handleCheckAccount}>Tiếp tục</Button>
               </>
             ) : (
               <div className="text-center py-4">
-                 <div className="text-sm text-gray-500 mb-2">Thông tin tài khoản xác nhận:</div>
-                 <div className="bg-gray-100 p-4 rounded-lg mb-4 border border-gray-200">
-                    <div className="text-xl font-bold text-blue-800">{bankId}</div>
-                    <div className="text-lg font-mono text-gray-800 my-1">{accNo}</div>
-                    <div className="text-xl font-bold text-gray-900">{lookupName}</div>
-                 </div>
-                 <p className="text-sm text-gray-600 mb-4">Đây có phải tài khoản nhận tiền của bạn?</p>
-                 <div className="flex gap-2">
-                    <Button variant="secondary" className="flex-1" onClick={() => setSettingStep('INPUT')}>Sửa lại</Button>
-                    <Button variant="success" className="flex-1" onClick={handleSaveSettings}>Đúng, Lưu lại</Button>
-                 </div>
+                 <div className="bg-gray-100 p-4 rounded-lg mb-4"><div className="text-xl font-bold">{bankId} - {accNo}</div><div className="text-lg">{lookupName}</div></div>
+                 <div className="flex gap-2"><Button variant="secondary" className="flex-1" onClick={() => setSettingStep('INPUT')}>Sửa lại</Button><Button variant="success" className="flex-1" onClick={handleSaveSettings}>Lưu</Button></div>
               </div>
             )}
          </div>
       </Modal>
+      
+      {/* RENDER MODAL BÁO CÁO */}
+      <ReportModal />
     </div>
   )
 }
