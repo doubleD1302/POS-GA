@@ -127,8 +127,9 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
   
   const [currentWeightInput, setCurrentWeightInput] = useState('');
   const [currentTareInput, setCurrentTareInput] = useState(''); 
-  const [currentCountInput, setCurrentCountInput] = useState(''); 
-  const [currentPrice, setCurrentPrice] = useState('');
+  const [currentCountInput, setCurrentCountInput] = useState('');
+  const [priceMale, setPriceMale] = useState('');
+  const [priceFemale, setPriceFemale] = useState('');
   
   // Modals
   const [isSupModalOpen, setIsSupModalOpen] = useState(false);
@@ -146,11 +147,14 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
   useEffect(() => {
     const p = products.find(x => x.id === currentPid);
     if (p) {
-        // Nếu chọn Trống lấy costMale, Mái lấy costFemale. Nếu chưa có thì = 0
-        const newPrice = gender === 'MALE' ? (p.costMale || 0) : (p.costFemale || 0);
-        setCurrentPrice(newPrice > 0 ? newPrice.toString() : '');
+        // Load cả 2 giá vào bộ nhớ tạm khi chọn Gà
+        setPriceMale(p.costMale ? p.costMale.toString() : '');
+        setPriceFemale(p.costFemale ? p.costFemale.toString() : '');
+    } else {
+        setPriceMale('');
+        setPriceFemale('');
     }
-  }, [currentPid, gender, products]);
+  }, [currentPid, products]);
 
 
   const loadSuppliers = () => {
@@ -201,7 +205,9 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
     if (!currentPid) return alert("Chưa chọn loại gà!");
     if (weightList.length === 0) return alert("Chưa nhập mã cân nào!");
     if (netWeight <= 0) return alert("Khối lượng thực bằng 0!");
-    if (!currentPrice) return alert("Chưa nhập giá nhập!");
+    
+    const actualPrice = gender === 'MALE' ? priceMale : priceFemale;
+    if (!actualPrice) return alert("Chưa nhập giá nhập!");
 
     const prod = products.find(p => p.id === currentPid);
     
@@ -214,8 +220,8 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
       gender: gender,
       kg: netWeight,
       con: totalCon,
-      price: parseFloat(currentPrice),
-      total: netWeight * parseFloat(currentPrice),
+      price: parseFloat(actualPrice),
+      total: netWeight * parseFloat(actualPrice),
       gross: totalGrossWeight,
       tare: totalTare,
       details: detailsStr
@@ -414,7 +420,7 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
         </div>
 
         <div className="grid grid-cols-2 gap-3 mt-4">
-             <Input label="Giá nhập / kg" type="number" value={currentPrice} onChange={(e: any) => setCurrentPrice(e.target.value)} className="font-bold" placeholder="0" />
+             <Input label="Giá nhập / kg" type="number" value={gender === 'MALE' ? priceMale : priceFemale} onChange={(e: any) => gender === 'MALE' ? setPriceMale(e.target.value) : setPriceFemale(e.target.value)} className="font-bold" placeholder="0" />
              <div className="flex flex-col">
                 <label className="text-sm font-bold text-gray-700 mb-1">Tổng số con</label>
                 <div className="w-full px-3 py-2 bg-gray-100 border border-gray-200 rounded-lg text-gray-800 font-bold">
@@ -510,6 +516,7 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
 // --- CASHBOOK PAGE (PHIÊN BẢN NÂNG CẤP: TAB THÁNG/NĂM & BÁO CÁO) ---
 function CashbookPage() {
   const [txns, setTxns] = useState(db.getCashTransactions());
+  const [invoices, setInvoices] = useState(db.getInvoices());
   // State quản lý chế độ xem: 'MONTH' hoặc 'YEAR'
   const [viewMode, setViewMode] = useState<'MONTH' | 'YEAR'>('MONTH');
   // State quản lý thời gian đang chọn (mặc định là hôm nay)
@@ -557,6 +564,38 @@ function CashbookPage() {
       }
     });
   };
+
+  // --- 1.5. LOGIC TRỘN TRANSACTION + DEBT INVOICE ---
+  const getMixedList = () => {
+    // 1. Lấy Giao dịch tiền mặt (Logic lọc cũ)
+    const filteredTxns = getFilteredTxns();
+
+    // 2. Lấy Hoá đơn nợ (Logic mới)
+    const filteredDebts = invoices.filter(i => {
+      if (i.debtAmount <= 0) return false; // Chỉ lấy hoá đơn có nợ
+      const iDate = new Date(i.date);
+      if (viewMode === 'MONTH') {
+        return iDate.getMonth() === targetDate.getMonth() && iDate.getFullYear() === targetDate.getFullYear();
+      }
+      return iDate.getFullYear() === targetDate.getFullYear();
+    });
+
+    // 3. Map hoá đơn nợ sang cấu trúc giống transaction để hiển thị chung
+    const formattedDebts = filteredDebts.map(i => ({
+      id: i.id,
+      date: i.date,
+      amount: i.debtAmount, // Hiển thị số nợ
+      type: 'DEBT' as any,         // Đánh dấu là Nợ
+      description: `Ghi nợ: ${i.partnerName} (${i.code})`,
+      refId: i.id           // Quan trọng: refId trỏ về chính nó để mở chi tiết
+    }));
+
+    // 4. Gộp và sắp xếp mới nhất lên đầu
+    return [...filteredTxns, ...formattedDebts].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  };
+
+  const mixedList = getMixedList();
+
 
   // Tính toán số liệu dựa trên danh sách đã lọc
   const filteredTxns = getFilteredTxns();
@@ -849,11 +888,11 @@ function CashbookPage() {
       </div>
 
       {/* TRANSACTION LIST (Đã lọc theo thời gian) */}
-      <h3 className="font-bold text-gray-700 mb-2">Lịch sử giao dịch ({filteredTxns.length})</h3>
+      <h3 className="font-bold text-gray-700 mb-2">Lịch sử giao dịch ({mixedList.length})</h3>
       
       <div className="space-y-2">
-        {filteredTxns.length === 0 ? <p className="text-sm text-gray-400 italic text-center py-4">Không có giao dịch trong kỳ này</p> :
-        filteredTxns.map(t => (
+        {mixedList.length === 0 ? <p className="text-sm text-gray-400 italic text-center py-4">Không có giao dịch trong kỳ này</p> :
+        mixedList.map(t => (
           <div 
             key={t.id} 
             onDoubleClick={() => handleSelectTxn(t)}
@@ -865,7 +904,10 @@ function CashbookPage() {
                 <div className="text-[10px] text-gray-400 whitespace-nowrap ml-2">{formatTime(t.date)} {formatDateShort(t.date)}</div>
               </div>
             </div>
-            <div className={`font-bold whitespace-nowrap text-sm ${t.type === 'INCOME' ? 'text-green-600' : 'text-red-600'}`}>
+            <div className={`font-bold whitespace-nowrap text-sm ${
+                t.type === 'INCOME' ? 'text-green-600' : 
+                t.type === 'DEBT' ? 'text-orange-500' : 'text-red-600'
+            }`}>
                {t.type === 'INCOME' ? '+' : '-'}{Number(t.amount).toLocaleString('vi-VN')}
             </div>
           </div>
@@ -878,8 +920,11 @@ function CashbookPage() {
             {selectedTxn && (
                 <>
                     <div className="bg-gray-50 p-3 rounded-lg text-center">
-                        <div className="text-sm text-gray-500 uppercase">{selectedTxn.type === 'INCOME' ? 'Thu Tiền' : 'Chi Tiền'}</div>
-                        <div className={`text-2xl font-bold ${selectedTxn.type === 'INCOME' ? 'text-green-600' : 'text-red-600'}`}>
+                        <div className="text-sm text-gray-500 uppercase">{selectedTxn.type === 'INCOME' ? 'Thu Tiền' : selectedTxn.type === 'DEBT' ? 'Ghi Nợ' : 'Chi Tiền'}</div>
+                        <div className={`text-2xl font-bold ${
+                            selectedTxn.type === 'INCOME' ? 'text-green-600' : 
+                            selectedTxn.type === 'DEBT' ? 'text-orange-600' : 'text-red-600'
+                        }`}>
                             {formatCurrency(selectedTxn.amount)}
                         </div>
                         <div className="text-xs text-gray-400 mt-1">{new Date(selectedTxn.date).toLocaleString('vi-VN')}</div>
@@ -974,6 +1019,9 @@ function PartnersPage() {
   const [partnerInvoices, setPartnerInvoices] = useState<Invoice[]>([]);
   const [payAmount, setPayAmount] = useState('');
   const [isPayMode, setIsPayMode] = useState(false);
+  
+  // Modal Chi tiết hoá đơn
+  const [viewingInvoice, setViewingInvoice] = useState<Invoice | null>(null);
 
   useEffect(() => {
     loadData();
@@ -1148,7 +1196,11 @@ function PartnersPage() {
                         <div className="text-sm text-center text-gray-400 py-4 italic">Không có hóa đơn nợ nào.</div>
                     ) : (
                         partnerInvoices.map(inv => (
-                            <div key={inv.id} className="bg-white border border-orange-100 rounded-lg p-3 shadow-sm flex justify-between items-center">
+                            <div 
+                                key={inv.id} 
+                                onClick={() => setViewingInvoice(inv)}
+                                className="bg-white border border-orange-100 rounded-lg p-3 shadow-sm flex justify-between items-center cursor-pointer hover:bg-orange-50"
+                            >
                                 <div>
                                     <div className="font-bold text-sm text-gray-800">{formatDate(inv.date)} <span className="text-gray-400 font-normal text-xs">#{inv.code}</span></div>
                                     <div className="text-xs text-gray-500 mt-1">
@@ -1197,6 +1249,40 @@ function PartnersPage() {
             </div>
          </Modal>
        )}
+
+       {/* MODAL 3: CHI TIẾT HOÁ ĐƠN */}
+       <Modal isOpen={!!viewingInvoice} onClose={() => setViewingInvoice(null)} title="Chi Tiết Hoá Đơn">
+           <div className="space-y-4">
+           {viewingInvoice && (
+               <>
+                   <div className="bg-gray-50 p-3 rounded-lg text-center border border-gray-200">
+                       <div className="font-bold text-gray-800 text-lg">#{viewingInvoice.code}</div>
+                       <div className="text-xs text-gray-500">{new Date(viewingInvoice.date).toLocaleString('vi-VN')}</div>
+                       <div className="mt-2 flex justify-center gap-4 text-sm">
+                          <div>Tổng: <b>{formatCurrency(viewingInvoice.totalAmount)}</b></div>
+                          <div className="text-orange-600">Nợ: <b>{formatCurrency(viewingInvoice.debtAmount)}</b></div>
+                       </div>
+                   </div>
+
+                   <div className="space-y-2 max-h-80 overflow-y-auto">
+                       {viewingInvoice.lines.map((line, idx) => (
+                           <div key={idx} className="flex flex-col p-3 border-b last:border-0 border-gray-100 bg-white rounded shadow-sm">
+                               <div className="flex justify-between w-full mb-1">
+                                   <div className="font-bold text-gray-800">{line.productName}</div>
+                                   <div className="font-bold text-blue-600">{formatCurrency(line.amount)}</div>
+                               </div>
+                               <div className="flex justify-between text-xs text-gray-500">
+                                   <span>{line.qtyKg} kg | {line.qtyCon} con {line.gender === 'FEMALE' ? '(Mái)' : '(Trống)'}</span>
+                                   <span>Giá: {formatCurrency(line.price)}</span>
+                               </div>
+                           </div>
+                       ))}
+                   </div>
+                   <Button className="w-full" onClick={() => setViewingInvoice(null)}>Đóng</Button>
+               </>
+           )}
+           </div>
+       </Modal>
     </div>
   )
 }
