@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../services/db';
-import { Product, Partner, PartnerType, Unit, PaymentMethod, BankSettings, Batch } from '../types';
+import { Product, Partner, PartnerType, Unit, PaymentMethod, BankSettings, Batch, Gender } from '../types';
 import { Button, Input, Select, Card, Modal } from '../components/ui';
 import { formatCurrency, ICONS } from '../constants';
 
 export default function POS({ navigate }: { navigate: (page: string) => void }) {
+  const [saleGender, setSaleGender] = useState<'MALE'|'FEMALE'>('MALE');
   const [products, setProducts] = useState<Product[]>([]);
   const [batches, setBatches] = useState<Batch[]>([]);
   const [customers, setCustomers] = useState<Partner[]>([]);
@@ -75,8 +76,11 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
   const openProductModal = (prod: Product) => {
     setActiveProduct(prod);
     setIsManualItem(false);
-    setManualName('');
-    setPrice(prod.defaultPrice.toString());
+    setSaleGender('MALE'); // Mặc định chọn Trống trước
+    // Lấy giá Trống mặc định
+    const defaultP = prod.priceMale || 0;
+    setPrice(defaultP.toString());
+    
     setQtyKg('');
     setQtyCon('');
     setUseManualPrice(false);
@@ -111,7 +115,8 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
 
     setCart([...cart, {
       productId: activeProduct.id,
-      productName: isManualItem ? manualName : activeProduct.name,
+      productName: isManualItem ? manualName : `${activeProduct.name} ${saleGender === 'MALE' ? '(Trống)' : '(Mái)'}`, // Thêm suffix tên cho dễ nhìn
+      gender: saleGender, // <--- QUAN TRỌNG: Để DB biết trừ kho lô nào
       qtyKg: k,
       qtyCon: c,
       price: p,
@@ -345,6 +350,7 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
       >
          <div className="space-y-4">
             {isManualItem && (
+              
                  <Input 
                     label="Tên mặt hàng" 
                     value={manualName} 
@@ -352,6 +358,32 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
                     placeholder="VD: Gà đi bộ..."
                     autoFocus
                 />
+            )}
+
+            {/* TOGGLE CHỌN GIỚI TÍNH KHI BÁN */}
+            {!isManualItem && (
+                <div className="flex gap-2 mb-2 p-1 bg-gray-100 rounded-lg">
+                    <button 
+                        onClick={() => {
+                            setSaleGender('MALE');
+                            // Tự động nhảy giá theo Trống
+                            if(!useManualPrice && activeProduct) setPrice((activeProduct.priceMale || 0).toString());
+                        }}
+                        className={`flex-1 py-2 text-xs font-bold rounded transition-all ${saleGender === 'MALE' ? 'bg-white text-blue-600 shadow' : 'text-gray-400'}`}
+                    >
+                        GÀ TRỐNG
+                    </button>
+                    <button 
+                        onClick={() => {
+                            setSaleGender('FEMALE');
+                            // Tự động nhảy giá theo Mái
+                            if(!useManualPrice && activeProduct) setPrice((activeProduct.priceFemale || 0).toString());
+                        }}
+                        className={`flex-1 py-2 text-xs font-bold rounded transition-all ${saleGender === 'FEMALE' ? 'bg-white text-pink-500 shadow' : 'text-gray-400'}`}
+                    >
+                        GÀ MÁI
+                    </button>
+                </div>
             )}
 
             <div className="flex gap-3">

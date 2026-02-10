@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { Batch, BankSettings, CashTransaction, DashboardStats, Invoice, InvoiceLine, Partner, PartnerType, PaymentMethod, Product, TransactionType, Unit, PreOrder } from '../types';
+import { Batch, BankSettings, CashTransaction, DashboardStats, Invoice, InvoiceLine, Partner, PartnerType, PaymentMethod, Product, TransactionType, Unit, PreOrder, Gender } from '../types';
 
 // --- CẤU HÌNH SUPABASE ---
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -13,10 +13,9 @@ export const supabase = createClient(supabaseUrl, supabaseKey);
 
 // --- DỮ LIỆU MẪU (SEED DATA) ---
 const SEED_PRODUCTS: Product[] = [
-  { id: 'p1', name: 'Gà Ta Thả Vườn', defaultPrice: 110000, standardCost: 85000 },
-  { id: 'p2', name: 'Gà Ri Lai', defaultPrice: 95000, standardCost: 70000 },
-  { id: 'p3', name: 'Gà Công Nghiệp', defaultPrice: 65000, standardCost: 45000 },
-];
+  { id: 'p1', name: 'Gà Ta Thả Vườn', priceMale: 110000, priceFemale: 90000, costMale: 85000, costFemale: 70000 },
+  { id: 'p2', name: 'Gà Ri Lai', priceMale: 95000, priceFemale: 85000, costMale: 70000, costFemale: 60000 },
+]
 
 const SEED_PARTNERS: Partner[] = [
   { id: 's1', name: 'Trại Gà Ba Vì', phone: '0901234567', type: PartnerType.SUPPLIER, debt: 0 },
@@ -320,7 +319,10 @@ class Database {
       const totalBatchCost = lineTotal + allocatedExtra;
       
       const prod = products.find(p => p.id === l.productId);
-      if (prod) prod.standardCost = l.price; 
+      if (prod) {
+        if (l.gender === 'MALE') prod.costMale = l.price;
+        else prod.costFemale = l.price;
+      } 
 
       invoiceLines.push({
         productId: l.productId,
@@ -330,13 +332,15 @@ class Database {
         unit: Unit.KG,
         price: l.price,
         amount: lineTotal,
-        gross: l.gross, tare: l.tare, details: l.details
+        gross: l.gross, tare: l.tare, details: l.details,
+        gender: l.gender || 'MALE'
       });
 
       return {
         id: `batch-${Date.now()}-${idx}`,
         code: `${code}-B${idx+1}`,
         productId: l.productId,
+        gender: l.gender || 'MALE',
         supplierId,
         supplierName: supplier.name,
         date,
@@ -395,20 +399,22 @@ class Database {
       totalAmount += lineAmount;
 
       if (line.productId === 'MANUAL') {
-        invoiceLines.push({ productId: 'MANUAL', productName: line.productName || 'Hàng ngoài', qtyCon: line.qtyCon, qtyKg: line.qtyKg, unit: line.unit, price: line.price, amount: lineAmount });
+        invoiceLines.push({ productId: 'MANUAL', productName: line.productName || 'Hàng ngoài', qtyCon: line.qtyCon, qtyKg: line.qtyKg, unit: line.unit, price: line.price, amount: lineAmount, gender: line.gender || 'MALE' });
         continue;
       }
 
       const prod = products.find(p => p.id === line.productId)!;
-      invoiceLines.push({ productId: line.productId, productName: prod.name, qtyCon: line.qtyCon, qtyKg: line.qtyKg, unit: line.unit, price: line.price, amount: lineAmount });
+      invoiceLines.push({ productId: line.productId, productName: prod.name, qtyCon: line.qtyCon, qtyKg: line.qtyKg, unit: line.unit, price: line.price, amount: lineAmount, gender: line.gender || 'MALE' });
 
       let remainingKgToDeduct = line.qtyKg;
       let remainingConToDeduct = line.qtyCon;
       
-      const productBatches = batches.filter(b => b.productId === line.productId && b.status === 'OPEN').sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
+      const productBatches = batches
+        .filter(b => b.productId === line.productId && b.status === 'OPEN' && b.gender === line.gender) // <--- THÊM CHECK GENDER
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
       if (productBatches.length === 0) {
-         const estCogs = prod.standardCost ? (line.qtyKg > 0 ? line.qtyKg * prod.standardCost : 0) : 0;
+         const avgCost = line.gender === 'MALE' ? prod.costMale : prod.costFemale;
+         const estCogs = avgCost ? (line.qtyKg > 0 ? line.qtyKg * avgCost : 0) : 0;
          totalCOGS += estCogs;
       }
 

@@ -6,7 +6,7 @@ import Inventory from './pages/Inventory';
 import { ICONS, formatCurrency } from './constants';
 import { db } from './services/db';
 import { Button, Input, Select, Card, Modal } from './components/ui';
-import { Partner, PartnerType, BankSettings, Invoice, CashTransaction, PreOrder, PaymentMethod, Product } from './types';
+import { Partner, PartnerType, BankSettings, Invoice, CashTransaction, PreOrder, PaymentMethod, Product, Gender } from './types';
 
 // --- LOGIN COMPONENT ---
 // --- LOGIN COMPONENT (ĐÃ SỬA ĐỂ KÍCH HOẠT ĐỒNG BỘ) ---
@@ -141,11 +141,17 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
 
   const weightInputRef = useRef<HTMLInputElement>(null);
   const countInputRef = useRef<HTMLInputElement>(null);
+  const [gender, setGender] = useState<'MALE'|'FEMALE'>('MALE');
 
   useEffect(() => {
-    loadSuppliers();
-    loadProducts();
-  }, []);
+    const p = products.find(x => x.id === currentPid);
+    if (p) {
+        // Nếu chọn Trống lấy costMale, Mái lấy costFemale. Nếu chưa có thì = 0
+        const newPrice = gender === 'MALE' ? (p.costMale || 0) : (p.costFemale || 0);
+        setCurrentPrice(newPrice > 0 ? newPrice.toString() : '');
+    }
+  }, [currentPid, gender, products]);
+
 
   const loadSuppliers = () => {
     const list = db.getPartners(PartnerType.SUPPLIER);
@@ -204,7 +210,8 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
 
     setTicketItems([...ticketItems, {
       pid: currentPid,
-      pName: prod ? prod.name : 'Unknown',
+      pName: `${prod.name} (${gender === 'MALE' ? 'Trống' : 'Mái'})`,
+      gender: gender,
       kg: netWeight,
       con: totalCon,
       price: parseFloat(currentPrice),
@@ -266,15 +273,38 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
   const handleOpenProdModal = (pid?: string) => {
     if (pid) {
       const p = products.find(x => x.id === pid);
-      if (p) { setEditingProduct(p); setProdName(p.name); setProdPrice(p.defaultPrice.toString()); }
-    } else { setEditingProduct(null); setProdName(''); setProdPrice(''); }
+      if (p) {
+        setEditingProduct(p);
+        setProdName(p.name);
+        // SỬA: Thay defaultPrice bằng priceMale
+        setProdPrice(p.priceMale ? p.priceMale.toString() : '');
+      }
+    } else {
+      setEditingProduct(null);
+      setProdName('');    
+      setProdPrice('');
+    }
     setIsProdModalOpen(true);
   }
 
   const handleSaveProduct = () => {
-     if (!prodName) return;
-     const newProd: Product = { id: editingProduct ? editingProduct.id : `p-${Date.now()}`, name: prodName, defaultPrice: Number(prodPrice) || 0, standardCost: editingProduct?.standardCost };
-     db.saveProduct(newProd); loadProducts(); if (!editingProduct) setCurrentPid(newProd.id); setIsProdModalOpen(false);
+    if (!prodName) return;
+    
+    // SỬA: Cập nhật cấu trúc object newProduct
+    const newProduct: Product = {
+      id: editingProduct ? editingProduct.id : `p-${Date.now()}`,
+      name: prodName,
+      // Vì modal thêm nhanh chỉ có 1 ô nhập giá, ta tạm gán vào giá bán Trống
+      priceMale: Number(prodPrice) || 0,
+      priceFemale: 0, // Mặc định 0
+      costMale: 0,    // Mặc định 0
+      costFemale: 0   // Mặc định 0
+    };
+    
+    db.saveProduct(newProduct);
+    loadProducts();
+    if (!editingProduct) setCurrentPid(newProduct.id);
+    setIsProdModalOpen(false);
   }
 
   const currentSupplier = suppliers.find(s => s.id === supplierId);
@@ -308,14 +338,31 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
             <div className="text-xs text-gray-500 italic">Nhập: Cân tổng - Bì - Số con</div>
         </div>
 
-        {/* Product Select */}
+        {/* Product Select MỚI - CÓ CHỌN GIỚI TÍNH */}
         <div className="flex gap-2 mb-3">
-             <div className="flex-1">
-                <select className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500" value={currentPid} onChange={e => {setCurrentPid(e.target.value); const p = products.find(x => x.id === e.target.value); if(p?.standardCost) setCurrentPrice(p.standardCost.toString()); else setCurrentPrice('');}}>
+             <div className="flex-[2]">
+                <select className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500" value={currentPid} onChange={e => setCurrentPid(e.target.value)}>
                   <option value="">-- Chọn Loại Gà --</option>
                   {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
              </div>
+             
+             {/* Nút Toggle Trống / Mái */}
+             <div className="flex bg-gray-100 rounded-lg p-1 border border-gray-200">
+                <button 
+                    onClick={() => setGender('MALE')}
+                    className={`px-3 py-1 rounded text-xs font-bold transition-all ${gender === 'MALE' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-gray-600'}`}
+                >
+                    TRỐNG
+                </button>
+                <button 
+                    onClick={() => setGender('FEMALE')}
+                    className={`px-3 py-1 rounded text-xs font-bold transition-all ${gender === 'FEMALE' ? 'bg-pink-500 text-white shadow' : 'text-gray-400 hover:text-gray-600'}`}
+                >
+                    MÁI
+                </button>
+             </div>
+
              <button onClick={() => handleOpenProdModal(currentPid)} className={`px-3 rounded-lg border ${currentPid ? 'bg-gray-100' : 'bg-brand-600 text-white font-bold'}`}>{currentPid ? '✎' : '+'}</button>
         </div>
 
