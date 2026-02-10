@@ -43,10 +43,10 @@ export default function Inventory() {
     if (product) {
       setEditingProduct(product);
       setFormName(product.name);
-      setPriceMale(product.priceMale?.toString() || '');
-      setPriceFemale(product.priceFemale?.toString() || '');
-      setCostMale(product.costMale?.toString() || '');
-      setCostFemale(product.costFemale?.toString() || '');
+      setPriceMale(product.priceMale ? (product.priceMale / 1000).toString() : '');
+      setPriceFemale(product.priceFemale ? (product.priceFemale / 1000).toString() : '');
+      setCostMale(product.costMale ? (product.costMale / 1000).toString() : '');
+      setCostFemale(product.costFemale ? (product.costFemale / 1000).toString() : '');
     } else {
       setEditingProduct(null);
       setFormName('');
@@ -62,10 +62,10 @@ export default function Inventory() {
     const newProduct: Product = {
       id: editingProduct ? editingProduct.id : `p-${Date.now()}`,
       name: formName,
-      priceMale: Number(priceMale) || 0,
-      priceFemale: Number(priceFemale) || 0,
-      costMale: Number(costMale) || 0,
-      costFemale: Number(costFemale) || 0,
+      priceMale: (Number(priceMale) * 1000) || 0,
+      priceFemale: (Number(priceFemale) * 1000) || 0,
+      costMale: (Number(costMale) * 1000) || 0,
+      costFemale: (Number(costFemale) * 1000) || 0,
     };
     
     db.saveProduct(newProduct);
@@ -166,10 +166,11 @@ export default function Inventory() {
       
       {tab === 'PRODUCTS' ? (
         <div className="space-y-4">
-           {products.map(p => {
+           {products.map((p, index) => {
              const stock = getStock(p.id);
+             const cardBg = index % 2 === 0 ? 'bg-white' : 'bg-slate-50 shadow-inner';
              return (
-             <Card key={p.id} className="overflow-hidden border-l-4 border-l-brand-500">
+             <Card key={p.id} className={`overflow-hidden border-l-4 border-l-brand-500 ${cardBg}`}>
                {/* Header Tên Gà + Hành động */}
                <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
                   <h3 className="font-bold text-lg text-gray-800 uppercase">{p.name}</h3>
@@ -287,16 +288,16 @@ export default function Inventory() {
           
           {/* Nhóm Gà Trống */}
           <div className="bg-blue-50 p-3 rounded border border-blue-100 grid grid-cols-2 gap-3">
-             <div className="col-span-2 text-xs font-bold text-blue-700 uppercase">Gà Trống</div>
-             <Input label="Giá Nhập (Vốn)" type="number" value={costMale} onChange={(e: any) => setCostMale(e.target.value)} />
-             <Input label="Giá Bán" type="number" value={priceMale} onChange={(e: any) => setPriceMale(e.target.value)} />
+             <div className="col-span-2 text-xs font-bold text-blue-700 uppercase">Gà Trống (Đơn vị: nghìn đ)</div>
+             <Input label="Giá Nhập" type="number" value={costMale} onChange={(e: any) => setCostMale(e.target.value)} placeholder="VD: 50 hoặc 50.5" />
+             <Input label="Giá Bán" type="number" value={priceMale} onChange={(e: any) => setPriceMale(e.target.value)} placeholder="VD: 80" />
           </div>
 
           {/* Nhóm Gà Mái */}
            <div className="bg-pink-50 p-3 rounded border border-pink-100 grid grid-cols-2 gap-3">
-             <div className="col-span-2 text-xs font-bold text-pink-600 uppercase">Gà Mái </div>
-             <Input label="Giá Nhập (Vốn)" type="number" value={costFemale} onChange={(e: any) => setCostFemale(e.target.value)} />
-             <Input label="Giá Bán" type="number" value={priceFemale} onChange={(e: any) => setPriceFemale(e.target.value)} />
+             <div className="col-span-2 text-xs font-bold text-pink-600 uppercase">Gà Mái (Đơn vị: nghìn đ)</div>
+             <Input label="Giá Nhập" type="number" value={costFemale} onChange={(e: any) => setCostFemale(e.target.value)} placeholder="VD: 40" />
+             <Input label="Giá Bán" type="number" value={priceFemale} onChange={(e: any) => setPriceFemale(e.target.value)} placeholder="VD: 70" />
           </div>
 
           <p className="text-xs text-gray-500 italic">* Giá nhập này dùng để gợi ý khi nhập hàng. Giá vốn thực tế sẽ tính theo từng lô hàng.</p>
