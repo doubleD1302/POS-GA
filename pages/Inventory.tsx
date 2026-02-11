@@ -1,13 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { db } from '../services/db';
-import { Batch, Product, Gender  } from '../types';
-import { Card, Button, Modal, Input, SecureValue } from '../components/ui';
+import { Batch, Product } from '../types';
+import { Button, Modal, Input, SecureValue } from '../components/ui';
 import { formatCurrency, formatDate } from '../constants';
 
 export default function Inventory() {
   const [batches, setBatches] = useState<Batch[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
-  const [tab, setTab] = useState<'STOCK' | 'PRODUCTS'>('PRODUCTS'); // Mặc định vào tab Danh mục để quản lý
+  
+  // State để quản lý việc mở rộng/thu gọn chi tiết gà
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   // Product Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -23,12 +25,9 @@ export default function Inventory() {
   const [editingBatch, setEditingBatch] = useState<Batch | null>(null);
   const [editKg, setEditKg] = useState('');
   const [editCon, setEditCon] = useState('');
-
-  // --- THÊM STATE NÀY ---
-  // Dùng để lưu thông tin khi sửa kho cho sản phẩm chưa có lô nào
   const [newAdjustmentInfo, setNewAdjustmentInfo] = useState<{pid: string, gender: string} | null>(null);
 
-  // Batch List Modal (Khi sửa kho từ danh mục)
+  // Batch List Modal
   const [isBatchListOpen, setIsBatchListOpen] = useState(false);
   const [selectedBatchesForEdit, setSelectedBatchesForEdit] = useState<Batch[]>([]);
   const [selectedProductTitle, setSelectedProductTitle] = useState('');
@@ -90,21 +89,17 @@ export default function Inventory() {
     setEditKg(batch.qtyRemKg.toString());
     setEditCon(batch.qtyRemCon.toString());
     setIsBatchModalOpen(true);
-    // Đóng modal danh sách nếu đang mở
     setIsBatchListOpen(false);
   }
 
   const handleSaveBatch = async () => {
-    // Validate số liệu
     const kg = parseFloat(editKg);
     const con = parseInt(editCon);
     if (isNaN(kg) || isNaN(con)) return alert("Số liệu không hợp lệ");
 
-    // TRƯỜNG HỢP 1: Sửa lô cũ (Logic cũ)
     if (editingBatch) {
        db.updateBatch(editingBatch.id, { qtyRemKg: kg, qtyRemCon: con });
     } 
-    // TRƯỜNG HỢP 2: Tạo lô điều chỉnh mới (Logic mới)
     else if (newAdjustmentInfo) {
        await db.createDirectAdjustment(newAdjustmentInfo.pid, newAdjustmentInfo.gender, kg, con);
     } 
@@ -114,18 +109,16 @@ export default function Inventory() {
 
     loadData();
     setIsBatchModalOpen(false);
-    setNewAdjustmentInfo(null); // Reset
+    setNewAdjustmentInfo(null);
   }
 
-  // Hàm mở danh sách batch hoặc mở form tạo mới
   const handleEditStockFromCategory = (pid: string, gender: 'MALE' | 'FEMALE', pName: string) => {
       const targetBatches = batches.filter(b => b.productId === pid && b.status === 'OPEN' && (b.gender === gender || !b.gender));
       
       if (targetBatches.length === 0) {
-          // LOGIC MỚI: Không alert nữa, mà cho phép nhập mới luôn
           if(window.confirm(`Chưa có lô hàng nào cho ${pName} (${gender === 'MALE' ? 'Trống' : 'Mái'}). Bạn muốn tạo tồn kho mới?`)) {
-             setNewAdjustmentInfo({ pid, gender }); // Lưu lại đang sửa cái gì
-             setEditingBatch(null); // Không có batch cũ
+             setNewAdjustmentInfo({ pid, gender });
+             setEditingBatch(null);
              setEditKg('');
              setEditCon('');
              setIsBatchModalOpen(true);
@@ -133,19 +126,16 @@ export default function Inventory() {
           return;
       }
 
-      // Nếu chỉ có 1 lô, mở luôn sửa lô đó
       if (targetBatches.length === 1) {
-          setNewAdjustmentInfo(null); // Reset
+          setNewAdjustmentInfo(null);
           handleOpenBatchEdit(targetBatches[0]);
       } else {
-          // Nếu nhiều lô, hiện danh sách để chọn
           setSelectedBatchesForEdit(targetBatches);
           setSelectedProductTitle(`${pName} (${gender === 'MALE' ? 'Trống' : 'Mái'})`);
           setIsBatchListOpen(true);
       }
   }
 
-  // Helper tính tồn kho
   const getStock = (pid: string) => {
       const openBatches = batches.filter(b => b.productId === pid && b.status === 'OPEN');
       const male = openBatches.filter(b => b.gender === 'MALE' || !b.gender);
@@ -163,143 +153,131 @@ export default function Inventory() {
       };
   }
 
+  // Toggle mở rộng item
+  const toggleExpand = (id: string) => {
+      if (expandedId === id) setExpandedId(null);
+      else setExpandedId(id);
+  }
+
   return (
     <div className="pb-24">
-      <div className="flex justify-between items-center mb-4">
+      {/* Header */}
+      <div className="flex justify-between items-center mb-6">
         <h1 className="text-xl font-bold text-brand-600">Quản Lý Kho</h1>
-        {tab === 'PRODUCTS' && (
-          <Button onClick={() => handleOpenModal()} className="text-sm px-3 py-1">+ Thêm Gà</Button>
-        )}
+        <Button onClick={() => handleOpenModal()} className="text-sm px-3 py-1">+ Thêm Gà</Button>
       </div>
 
-      {/* Tabs */}
-      <div className="flex bg-white rounded-lg p-1 shadow-sm border border-gray-100 mb-4">
-        <button 
-          onClick={() => setTab('PRODUCTS')}
-          className={`flex-1 py-2 text-sm font-bold uppercase rounded-md transition-all ${tab === 'PRODUCTS' ? 'bg-brand-600 text-white shadow' : 'text-gray-500 hover:bg-gray-50'}`}
-        >
-          Danh Mục & Giá
-        </button>
-        <button 
-          onClick={() => setTab('STOCK')}
-          className={`flex-1 py-2 text-sm font-bold uppercase rounded-md transition-all ${tab === 'STOCK' ? 'bg-brand-600 text-white shadow' : 'text-gray-500 hover:bg-gray-50'}`}
-        >
-          Lịch sử nhập
-        </button>
-      </div>
-      
-      {tab === 'PRODUCTS' ? (
-        <div className="space-y-4">
-           {products.map((p, index) => {
+      {/* DANH SÁCH GÀ (DẠNG TỐI GIẢN) */}
+      <div className="space-y-3">
+           {products.map((p) => {
              const stock = getStock(p.id);
-             const cardBg = index % 2 === 0 ? 'bg-white' : 'bg-slate-50 shadow-inner';
+             const isExpanded = expandedId === p.id;
+             
              return (
-             <Card key={p.id} className={`overflow-hidden border-l-4 border-l-brand-500 ${cardBg}`}>
-               {/* Header Tên Gà + Hành động */}
-               <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
-                  <h3 className="font-bold text-lg text-gray-800 uppercase">{p.name}</h3>
-                  <div className="flex gap-2">
-                    <button onClick={() => handleOpenModal(p)} className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded hover:bg-blue-100">
-                        Cài đặt
-                    </button>
-                    <button onClick={() => handleDeleteProduct(p.id)} className="text-xs font-bold text-red-600 bg-red-50 px-2 py-1 rounded hover:bg-red-100">
-                        Xóa
-                    </button>
+             <div key={p.id} className={`rounded-xl border transition-all overflow-hidden ${isExpanded ? 'border-brand-500 shadow-md bg-white' : 'border-gray-200 bg-white shadow-sm'}`}>
+               
+               {/* 1. PHẦN HIỂN THỊ TỐI GIẢN (Luôn hiện) */}
+               <div 
+                  onClick={() => toggleExpand(p.id)}
+                  className={`flex justify-between items-center p-4 cursor-pointer hover:bg-gray-50 ${isExpanded ? 'border-b border-gray-100 bg-brand-50' : ''}`}
+               >
+                  <div className="flex items-center gap-2">
+                      {/* Icon mũi tên xoay */}
+                      <span className={`text-gray-400 text-xs transition-transform ${isExpanded ? 'rotate-90' : ''}`}>▶</span>
+                      <h3 className="font-bold text-gray-800 uppercase text-lg">{p.name}</h3>
                   </div>
-               </div>
-
-               {/* Grid thông tin chi tiết: Trống vs Mái */}
-               <div className="grid grid-cols-2 gap-0 divide-x divide-gray-200">
                   
-                  {/* CỘT GÀ TRỐNG */}
-                  <div className="pr-2">
-                      <div className="text-center bg-blue-100 text-blue-800 text-[10px] font-black uppercase py-1 rounded mb-2">Gà Trống</div>
-                      
-                      {/* Giá */}
-                      <div className="space-y-1 mb-3 text-sm">
-                          <div className="flex justify-between">
-                              <span className="text-gray-500 text-xs">Giá Nhập:</span>
-                              <span className="font-bold text-orange-600">{p.costMale ? <SecureValue value={formatCurrency(p.costMale)} /> : '_'}</span>
-                          </div>
-                          <div className="flex justify-between">
-                              <span className="text-gray-500 text-xs">Giá Bán:</span>
-                              <span className="font-bold text-blue-600">{formatCurrency(p.priceMale)}</span>
-                          </div>
-                      </div>
-
-                      {/* Tồn kho & Sửa */}
-                      <div className="bg-gray-50 p-2 rounded border border-gray-200">
-                          <div className="text-[10px] text-gray-400 font-bold uppercase mb-1">Tồn kho hiện tại</div>
-                          <div className="flex justify-between items-center">
-                              <div className="leading-tight">
-                                  <div className="font-black text-gray-800 text-lg">{stock.male.con} <span className="text-[10px] font-normal text-gray-500">con</span></div>
-                                  <div className="text-xs text-gray-500 font-medium">{stock.male.kg.toFixed(1)} kg</div>
-                              </div>
-                              <button onClick={() => handleEditStockFromCategory(p.id, 'MALE', p.name)} className="bg-white border border-gray-300 shadow-sm p-1.5 rounded-full text-gray-600 hover:text-brand-600 active:scale-95">
-                                 ✏️
-                              </button>
-                          </div>
-                      </div>
+                  {/* Hiển thị tóm tắt số lượng */}
+                  <div className="flex items-center gap-3 text-sm font-bold font-mono">
+                     <div className="text-blue-700 bg-blue-50 px-2 py-1 rounded">
+                        {stock.male.con} T
+                     </div>
+                     <div className="text-gray-300">|</div>
+                     <div className="text-pink-600 bg-pink-50 px-2 py-1 rounded">
+                        {stock.female.con} M
+                     </div>
                   </div>
-
-                  {/* CỘT GÀ MÁI */}
-                  <div className="pl-2">
-                      <div className="text-center bg-pink-100 text-pink-800 text-[10px] font-black uppercase py-1 rounded mb-2">Gà Mái </div>
-                      
-                      {/* Giá */}
-                      <div className="space-y-1 mb-3 text-sm">
-                          <div className="flex justify-between">
-                              <span className="text-gray-500 text-xs">Giá Nhập:</span>
-                              <span className="font-bold text-orange-600">{p.costFemale ? <SecureValue value={formatCurrency(p.costFemale)} /> : '_'}</span>
-                          </div>
-                          <div className="flex justify-between">
-                              <span className="text-gray-500 text-xs">Giá Bán:</span>
-                              <span className="font-bold text-pink-600">{formatCurrency(p.priceFemale)}</span>
-                          </div>
-                      </div>
-
-                       {/* Tồn kho & Sửa */}
-                       <div className="bg-gray-50 p-2 rounded border border-gray-200">
-                          <div className="text-[10px] text-gray-400 font-bold uppercase mb-1">Tồn kho hiện tại</div>
-                          <div className="flex justify-between items-center">
-                              <div className="leading-tight">
-                                  <div className="font-black text-gray-800 text-lg">{stock.female.con} <span className="text-[10px] font-normal text-gray-500">con</span></div>
-                                  <div className="text-xs text-gray-500 font-medium">{stock.female.kg.toFixed(1)} kg</div>
-                              </div>
-                              <button onClick={() => handleEditStockFromCategory(p.id, 'FEMALE', p.name)} className="bg-white border border-gray-300 shadow-sm p-1.5 rounded-full text-gray-600 hover:text-brand-600 active:scale-95">
-                                 ✏️
-                              </button>
-                          </div>
-                      </div>
-                  </div>
-
                </div>
-             </Card>
-           )})}
-        </div>
-      ) : (
-        // TAB STOCK (GIỮ NGUYÊN HOẶC ĐƠN GIẢN HOÁ VÌ ĐÃ CÓ Ở TAB KIA)
-        <div className="space-y-4">
-             <div className="text-center text-xs text-gray-500 italic bg-yellow-50 p-2 rounded">
-                 Tab này hiển thị chi tiết các lô hàng (Batches) đang có trong kho.
+
+               {/* 2. PHẦN CHI TIẾT (Chỉ hiện khi bấm vào) */}
+               {isExpanded && (
+               <div className="animate-in fade-in duration-200">
+                   {/* Thanh công cụ con */}
+                   <div className="flex justify-end gap-2 p-2 border-b border-gray-100 bg-white">
+                        <button onClick={(e) => { e.stopPropagation(); handleOpenModal(p); }} className="text-xs font-bold text-blue-600 bg-blue-50 px-3 py-1.5 rounded hover:bg-blue-100 flex items-center gap-1">
+                            ⚙ Cài đặt giá
+                        </button>
+                        <button onClick={(e) => { e.stopPropagation(); handleDeleteProduct(p.id); }} className="text-xs font-bold text-red-600 bg-red-50 px-3 py-1.5 rounded hover:bg-red-100 flex items-center gap-1">
+                            🗑 Xóa
+                        </button>
+                   </div>
+
+                   {/* Grid thông tin chi tiết: Trống vs Mái */}
+                   <div className="grid grid-cols-2 gap-0 divide-x divide-gray-200 bg-white">
+                      
+                      {/* CỘT GÀ TRỐNG */}
+                      <div className="p-3">
+                          <div className="text-center text-blue-800 text-xs font-black uppercase mb-3">Gà Trống</div>
+                          
+                          {/* Giá */}
+                          <div className="space-y-2 mb-4 text-sm">
+                              <div className="flex justify-between border-b border-dashed border-gray-100 pb-1">
+                                  <span className="text-gray-500 text-xs">Giá Nhập:</span>
+                                  <span className="font-bold text-orange-600">{p.costMale ? <SecureValue value={formatCurrency(p.costMale)} /> : '_'}</span>
+                              </div>
+                              <div className="flex justify-between border-b border-dashed border-gray-100 pb-1">
+                                  <span className="text-gray-500 text-xs">Giá Bán:</span>
+                                  <span className="font-bold text-blue-600">{formatCurrency(p.priceMale)}</span>
+                              </div>
+                          </div>
+
+                          {/* Tồn kho & Sửa */}
+                          <div className="bg-blue-50 p-2 rounded border border-blue-100 relative group cursor-pointer" onClick={() => handleEditStockFromCategory(p.id, 'MALE', p.name)}>
+                              <div className="text-[10px] text-blue-400 font-bold uppercase mb-1">Tồn kho (Sửa)</div>
+                              <div className="flex justify-between items-end">
+                                  <div className="leading-tight">
+                                      <div className="font-black text-gray-800 text-xl">{stock.male.con} <span className="text-[10px] font-normal text-gray-500">con</span></div>
+                                      <div className="text-xs text-gray-500 font-medium">{stock.male.kg.toFixed(1)} kg</div>
+                                  </div>
+                                  <div className="text-blue-500 opacity-50 group-hover:opacity-100 transition-opacity text-sm">✎</div>
+                              </div>
+                          </div>
+                      </div>
+
+                      {/* CỘT GÀ MÁI */}
+                      <div className="p-3">
+                          <div className="text-center text-pink-800 text-xs font-black uppercase mb-3">Gà Mái </div>
+                          
+                          {/* Giá */}
+                          <div className="space-y-2 mb-4 text-sm">
+                              <div className="flex justify-between border-b border-dashed border-gray-100 pb-1">
+                                  <span className="text-gray-500 text-xs">Giá Nhập:</span>
+                                  <span className="font-bold text-orange-600">{p.costFemale ? <SecureValue value={formatCurrency(p.costFemale)} /> : '_'}</span>
+                              </div>
+                              <div className="flex justify-between border-b border-dashed border-gray-100 pb-1">
+                                  <span className="text-gray-500 text-xs">Giá Bán:</span>
+                                  <span className="font-bold text-pink-600">{formatCurrency(p.priceFemale)}</span>
+                              </div>
+                          </div>
+
+                           {/* Tồn kho & Sửa */}
+                           <div className="bg-pink-50 p-2 rounded border border-pink-100 relative group cursor-pointer" onClick={() => handleEditStockFromCategory(p.id, 'FEMALE', p.name)}>
+                              <div className="text-[10px] text-pink-400 font-bold uppercase mb-1">Tồn kho (Sửa)</div>
+                              <div className="flex justify-between items-end">
+                                  <div className="leading-tight">
+                                      <div className="font-black text-gray-800 text-xl">{stock.female.con} <span className="text-[10px] font-normal text-gray-500">con</span></div>
+                                      <div className="text-xs text-gray-500 font-medium">{stock.female.kg.toFixed(1)} kg</div>
+                                  </div>
+                                  <div className="text-pink-500 opacity-50 group-hover:opacity-100 transition-opacity text-sm">✎</div>
+                              </div>
+                          </div>
+                      </div>
+                   </div>
+               </div>
+               )}
              </div>
-             {batches.filter(b => b.status === 'OPEN').map(batch => (
-                 <div key={batch.id} onClick={() => handleOpenBatchEdit(batch)} className="bg-white p-3 rounded-lg shadow-sm border border-gray-200 cursor-pointer hover:border-brand-300 flex justify-between items-center">
-                    <div>
-                        <div className="font-bold text-gray-800 text-sm">
-                            {products.find(p => p.id === batch.productId)?.name || 'Unknown'} 
-                            <span className={`ml-1 text-[10px] px-1 rounded ${batch.gender === 'FEMALE' ? 'bg-pink-100 text-pink-700' : 'bg-blue-100 text-blue-700'}`}>{batch.gender === 'FEMALE' ? 'Mái' : 'Trống'}</span>
-                        </div>
-                        <div className="text-xs text-gray-500">{formatDate(batch.date)} • {batch.supplierName}</div>
-                    </div>
-                    <div className="text-right">
-                        <div className="font-bold text-gray-800">{batch.qtyRemCon} con</div>
-                        <div className="text-xs text-gray-500">{batch.qtyRemKg.toFixed(1)} kg</div>
-                    </div>
-                 </div>
-             ))}
-        </div>
-      )}
+           )})}
+      </div>
 
       {/* MODAL 1: Cài đặt sản phẩm (Giá/Tên) */}
       <Modal 
@@ -313,7 +291,7 @@ export default function Inventory() {
           {/* Nhóm Gà Trống */}
           <div className="bg-blue-50 p-3 rounded border border-blue-100 grid grid-cols-2 gap-3">
              <div className="col-span-2 text-xs font-bold text-blue-700 uppercase">Gà Trống (Đơn vị: nghìn đ)</div>
-             <Input label="Giá Nhập" type="number" value={costMale} onChange={(e: any) => setCostMale(e.target.value)} placeholder="VD: 50 hoặc 50.5" />
+             <Input label="Giá Nhập" type="number" value={costMale} onChange={(e: any) => setCostMale(e.target.value)} placeholder="VD: 50" />
              <Input label="Giá Bán" type="number" value={priceMale} onChange={(e: any) => setPriceMale(e.target.value)} placeholder="VD: 80" />
           </div>
 
@@ -333,7 +311,7 @@ export default function Inventory() {
       <Modal isOpen={isBatchModalOpen} onClose={() => setIsBatchModalOpen(false)} title="Sửa Tồn Kho (Thực tế)">
          <div className="space-y-4">
             <div className="bg-yellow-50 p-2 rounded text-xs text-yellow-700 border border-yellow-200">
-               Bạn đang sửa số lượng thực tế của lô hàng nhập ngày <b>{editingBatch && formatDate(editingBatch.date)}</b>.
+               Điều chỉnh số lượng thực tế trong kho.
             </div>
             <div className="grid grid-cols-2 gap-4">
                 <Input label="Số Kg còn lại" type="number" value={editKg} onChange={(e: any) => setEditKg(e.target.value)} autoFocus />
