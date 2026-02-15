@@ -113,7 +113,6 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
   const [suppliers, setSuppliers] = useState<Partner[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [supplierId, setSupplierId] = useState('');
-  const [importMode, setImportMode] = useState<'QUICK' | 'DETAIL'>('QUICK');
 
   const [ticketItems, setTicketItems] = useState<{
       pid: string;
@@ -132,8 +131,6 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
   const [currentWeightInput, setCurrentWeightInput] = useState('');
   const [currentTareInput, setCurrentTareInput] = useState('');
   const [currentCountInput, setCurrentCountInput] = useState('');
-  const [quickNetInput, setQuickNetInput] = useState('');
-  const [quickConInput, setQuickConInput] = useState('');
   const [priceMale, setPriceMale] = useState('');
   const [priceFemale, setPriceFemale] = useState('');
 
@@ -160,12 +157,11 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
     return list;
   };
 
-  const saveLastDefaults = (override?: Partial<{ supplierId: string; productId: string; gender: Gender; mode: 'QUICK' | 'DETAIL'; priceMale: string; priceFemale: string }>) => {
+  const saveLastDefaults = (override?: Partial<{ supplierId: string; productId: string; gender: Gender; priceMale: string; priceFemale: string }>) => {
     const payload = {
       supplierId,
       productId: currentPid,
       gender,
-      mode: importMode,
       priceMale,
       priceFemale,
       ...override,
@@ -181,7 +177,6 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
     if (rawDefaults) {
       try {
         const defaults = JSON.parse(rawDefaults);
-        if (defaults.mode === 'QUICK' || defaults.mode === 'DETAIL') setImportMode(defaults.mode);
         if (defaults.gender === 'MALE' || defaults.gender === 'FEMALE') setGender(defaults.gender);
         if (typeof defaults.priceMale === 'string') setPriceMale(defaults.priceMale);
         if (typeof defaults.priceFemale === 'string') setPriceFemale(defaults.priceFemale);
@@ -201,7 +196,7 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
 
   useEffect(() => {
     if (supplierId || currentPid) saveLastDefaults();
-  }, [supplierId, currentPid, gender, importMode, priceMale, priceFemale]);
+  }, [supplierId, currentPid, gender, priceMale, priceFemale]);
 
   const detailGrossWeight = parseFloat(currentWeightInput) || 0;
   const detailTare = parseFloat(currentTareInput) || 0;
@@ -222,26 +217,17 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
     let itemTare = 0;
     let detailsStr = '';
 
-    if (importMode === 'DETAIL') {
-      if (detailGrossWeight <= 0) {
-        alert("Vui lòng nhập tổng kg!");
-        weightInputRef.current?.focus();
-        return;
-      }
-      if (detailNetWeight <= 0) return alert("Khối lượng thực bằng 0!");
-      itemKg = detailNetWeight;
-      itemCon = detailCon;
-      itemGross = detailGrossWeight;
-      itemTare = detailTare;
-      detailsStr = `${detailGrossWeight}${detailTare > 0 ? `(-${detailTare}b)` : ''}`;
-    } else {
-      itemKg = parseFloat(quickNetInput);
-      itemCon = parseInt(quickConInput) || 0;
-      if (isNaN(itemKg) || itemKg <= 0) return alert("Nhập khối lượng thực (kg) hợp lệ!");
-      itemGross = itemKg;
-      itemTare = 0;
-      detailsStr = 'Nhập nhanh';
+    if (detailGrossWeight <= 0) {
+      alert("Vui lòng nhập tổng kg!");
+      weightInputRef.current?.focus();
+      return;
     }
+    if (detailNetWeight <= 0) return alert("Khối lượng thực bằng 0!");
+    itemKg = detailNetWeight;
+    itemCon = detailCon;
+    itemGross = detailGrossWeight;
+    itemTare = detailTare;
+    detailsStr = `${detailGrossWeight}${detailTare > 0 ? `(-${detailTare}b)` : ''}`;
 
     const prod = products.find(p => p.id === currentPid);
     const newItem = {
@@ -281,8 +267,6 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
     setCurrentWeightInput('');
     setCurrentTareInput('');
     setCurrentCountInput('');
-    setQuickNetInput('');
-    setQuickConInput('');
     saveLastDefaults();
   };
 
@@ -305,6 +289,9 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
         qtyCon: i.con,
         price: i.price,
         gender: i.gender,
+        gross: i.gross,
+        tare: i.tare,
+        details: i.details,
       })),
       0,
       0
@@ -397,20 +384,7 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
       <Card className="mb-6 border-brand-200 shadow-md">
         <div className="flex flex-wrap justify-between items-center gap-2 mb-3">
           <h3 className="font-bold text-brand-800 flex items-center gap-2"><span>Nhập hàng</span></h3>
-          <div className="flex bg-gray-100 rounded-lg p-1 border border-gray-200">
-            <button
-              onClick={() => setImportMode('QUICK')}
-              className={`px-3 py-1 rounded text-xs font-bold transition-all ${importMode === 'QUICK' ? 'bg-brand-600 text-white shadow' : 'text-gray-500 hover:text-gray-700'}`}
-            >
-              Nhanh
-            </button>
-            <button
-              onClick={() => setImportMode('DETAIL')}
-              className={`px-3 py-1 rounded text-xs font-bold transition-all ${importMode === 'DETAIL' ? 'bg-brand-600 text-white shadow' : 'text-gray-500 hover:text-gray-700'}`}
-            >
-              Chi tiết
-            </button>
-          </div>
+          <div className="text-xs text-gray-500 italic">Điền Tổng KG - Bì (tuỳ chọn) - Con rồi bấm Thêm vào phiếu</div>
         </div>
 
         <div className="flex gap-2 mb-3">
@@ -437,51 +411,44 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
           <button onClick={() => handleOpenProdModal(currentPid)} className={`px-3 rounded-lg border ${currentPid ? 'bg-gray-100' : 'bg-brand-600 text-white font-bold'}`}>{currentPid ? '✎' : '+'}</button>
         </div>
 
-        {importMode === 'QUICK' ? (
-          <div className="grid grid-cols-2 gap-3">
-            <Input label="Thực nhập (kg)" type="number" value={quickNetInput} onChange={(e: any) => setQuickNetInput(e.target.value)} placeholder="0" />
-            <Input label="Số con" type="number" value={quickConInput} onChange={(e: any) => setQuickConInput(e.target.value)} placeholder="0" />
+        <>
+          <div className="flex gap-2 mb-3 items-end">
+            <div className="flex-[2]">
+              <label className="text-[10px] text-gray-500 font-bold ml-1">TỔNG KG</label>
+              <input ref={weightInputRef} type="number" placeholder="0.0" className="w-full px-2 py-2 text-lg font-bold text-gray-800 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none" value={currentWeightInput} onChange={e => setCurrentWeightInput(e.target.value)} />
+            </div>
+            <div className="flex-1">
+              <label className="text-[10px] text-red-500 font-bold ml-1">BÌ (KG)</label>
+              <input type="number" placeholder="0" className="w-full px-2 py-2 text-lg font-bold text-red-600 bg-red-50 border border-red-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:outline-none" value={currentTareInput} onChange={e => setCurrentTareInput(e.target.value)} />
+            </div>
+            <div className="flex-1">
+              <label className="text-[10px] text-gray-500 font-bold ml-1">CON</label>
+              <input type="number" placeholder="0" className="w-full px-2 py-2 text-lg font-bold text-center text-gray-800 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none" value={currentCountInput} onChange={e => setCurrentCountInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleAddItemToTicket(); }} />
+            </div>
           </div>
-        ) : (
-          <>
-            <div className="flex gap-2 mb-3 items-end">
-              <div className="flex-[2]">
-                <label className="text-[10px] text-gray-500 font-bold ml-1">TỔNG KG</label>
-                <input ref={weightInputRef} type="number" placeholder="0.0" className="w-full px-2 py-2 text-lg font-bold text-gray-800 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none" value={currentWeightInput} onChange={e => setCurrentWeightInput(e.target.value)} />
-              </div>
-              <div className="flex-1">
-                <label className="text-[10px] text-red-500 font-bold ml-1">BÌ (KG)</label>
-                <input type="number" placeholder="0" className="w-full px-2 py-2 text-lg font-bold text-red-600 bg-red-50 border border-red-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:outline-none" value={currentTareInput} onChange={e => setCurrentTareInput(e.target.value)} />
-              </div>
-              <div className="flex-1">
-                <label className="text-[10px] text-gray-500 font-bold ml-1">CON</label>
-                <input type="number" placeholder="0" className="w-full px-2 py-2 text-lg font-bold text-center text-gray-800 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none" value={currentCountInput} onChange={e => setCurrentCountInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleAddItemToTicket(); }} />
-              </div>
-            </div>
 
-            <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-2">
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-gray-500">Tổng cân (Gross):</span>
-                <span className="font-bold text-gray-800">{detailGrossWeight.toFixed(2)} kg</span>
-              </div>
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-gray-500">Tổng trừ bì:</span>
-                <span className="font-bold text-red-500">-{detailTare.toFixed(2)} kg</span>
-              </div>
-              <div className="border-t border-gray-300 pt-2 flex justify-between items-center">
-                <span className="font-bold text-brand-700 text-lg">Thực Nhập (Net):</span>
-                <span className="text-2xl font-bold text-brand-600">{detailNetWeight.toFixed(2)} kg</span>
-              </div>
+          <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-2">
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-gray-500">Tổng cân (Gross):</span>
+              <span className="font-bold text-gray-800">{detailGrossWeight.toFixed(2)} kg</span>
             </div>
-          </>
-        )}
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-gray-500">Tổng trừ bì:</span>
+              <span className="font-bold text-red-500">-{detailTare.toFixed(2)} kg</span>
+            </div>
+            <div className="border-t border-gray-300 pt-2 flex justify-between items-center">
+              <span className="font-bold text-brand-700 text-lg">Thực Nhập (Net):</span>
+              <span className="text-2xl font-bold text-brand-600">{detailNetWeight.toFixed(2)} kg</span>
+            </div>
+          </div>
+        </>
 
         <div className="grid grid-cols-2 gap-3 mt-4">
           <Input label="Giá nhập (nghìn VND/kg)" type="number" value={gender === 'MALE' ? priceMale : priceFemale} onChange={(e: any) => gender === 'MALE' ? setPriceMale(e.target.value) : setPriceFemale(e.target.value)} className="font-bold" placeholder="0" />
           <div className="flex flex-col">
             <label className="text-sm font-bold text-gray-700 mb-1">Số con</label>
             <div className="w-full px-3 py-2 bg-gray-100 border border-gray-200 rounded-lg text-gray-800 font-bold">
-              {importMode === 'DETAIL' ? detailCon : (parseInt(quickConInput) || 0)}
+              {detailCon}
             </div>
           </div>
         </div>
@@ -985,20 +952,69 @@ function CashbookPage() {
                     </div>
                     <div className="text-sm text-gray-800 font-medium">{selectedTxn.description}</div>
                     {selectedInvoice && (
-                        <div className="space-y-3 max-h-60 overflow-y-auto bg-white border border-gray-100 rounded p-2">
-                            {selectedInvoice.lines.map((line, idx) => (
-                                <div key={idx} className="flex flex-col p-3 border-b last:border-0 border-gray-100 bg-gray-50 rounded mb-2">
-                                    <div className="flex justify-between w-full mb-2">
-                                        <div className="font-bold text-lg text-gray-800">{line.productName}</div>
-                                        <div className="font-bold text-lg text-blue-600">{formatCurrency(line.amount)}</div>
+                        selectedInvoice.type === 'IMPORT' ? (
+                          <div className="bg-white rounded shadow border border-gray-200 overflow-hidden max-h-[60vh] overflow-y-auto">
+                            <div className="p-4 text-center border-b border-gray-200 border-dashed">
+                              <h2 className="text-xl font-extrabold text-gray-800 uppercase tracking-widest">Phiếu Nhập Hàng</h2>
+                              <p className="text-xs text-gray-500 mt-1">{new Date(selectedInvoice.date).toLocaleString('vi-VN')}</p>
+                              <div className="mt-3 text-left bg-gray-50 p-2 rounded text-sm border border-gray-200">
+                                <div><span className="font-bold text-gray-600">NCC:</span> {selectedInvoice.partnerName}</div>
+                              </div>
+                            </div>
+
+                            <div className="p-2">
+                              {selectedInvoice.lines.map((line, idx) => (
+                                <div key={idx} className="mb-3 border border-gray-200 rounded-md overflow-hidden text-sm bg-white">
+                                  <div className="bg-gray-100 px-3 py-2 font-bold text-gray-800">
+                                    {idx + 1}. {line.productName} ({line.gender === 'FEMALE' ? 'Mái' : 'Trống'})
+                                  </div>
+                                  <div className="p-3 grid grid-cols-2 gap-y-1 gap-x-4 text-gray-600">
+                                    <div>Tổng cân: <span className="font-bold text-gray-800">{Number(line.gross || line.qtyKg).toFixed(2)} kg</span></div>
+                                    <div>Trừ bì: <span className="font-bold text-red-600">-{Number(line.tare || 0).toFixed(2)} kg</span></div>
+                                    <div className="col-span-2 border-b border-gray-100 my-1"></div>
+                                    <div>Thực nhập: <span className="font-bold text-blue-600">{line.qtyKg.toFixed(2)} kg</span></div>
+                                    <div>Số lượng: <span className="font-bold text-blue-600">{line.qtyCon} con</span></div>
+                                    <div className="col-span-2 text-xs italic text-gray-400 mt-1">Chi tiết: {line.details || '-'}</div>
+                                    <div className="col-span-2 border-t border-gray-200 mt-2 pt-2 flex justify-between items-center">
+                                      <span>Đơn giá: {(line.price / 1000).toLocaleString('vi-VN')} nghìn VND/kg</span>
+                                      <span className="text-lg font-bold text-gray-800">{formatCurrency(line.amount)}</span>
                                     </div>
-                                    <div className="flex justify-between text-base text-gray-700 font-medium">
-                                        <span>{line.qtyKg} kg | {line.qtyCon} con</span>
-                                        <span>Giá: {formatCurrency(line.price)}</span>
-                                    </div>
+                                  </div>
                                 </div>
+                              ))}
+                            </div>
+
+                            <div className="bg-gray-800 text-white p-4">
+                              <div className="flex justify-between items-center text-sm mb-1">
+                                <span className="text-gray-300">Tổng bì (lồng):</span>
+                                <span>{selectedInvoice.lines.reduce((sum, line) => sum + Number(line.tare || 0), 0).toFixed(2)} kg</span>
+                              </div>
+                              <div className="flex justify-between items-center text-sm mb-3">
+                                <span className="text-gray-300">Tổng thực nhập:</span>
+                                <span>{selectedInvoice.lines.reduce((sum, line) => sum + line.qtyKg, 0).toFixed(2)} kg</span>
+                              </div>
+                              <div className="border-t border-gray-600 pt-3 flex justify-between items-center">
+                                <span className="font-bold text-lg uppercase">Tổng Tiền:</span>
+                                <span className="text-2xl font-bold text-yellow-400">{formatCurrency(selectedInvoice.totalAmount)}</span>
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-3 max-h-60 overflow-y-auto bg-white border border-gray-100 rounded p-2">
+                            {selectedInvoice.lines.map((line, idx) => (
+                              <div key={idx} className="flex flex-col p-3 border-b last:border-0 border-gray-100 bg-gray-50 rounded mb-2">
+                                <div className="flex justify-between w-full mb-2">
+                                  <div className="font-bold text-lg text-gray-800">{line.productName}</div>
+                                  <div className="font-bold text-lg text-blue-600">{formatCurrency(line.amount)}</div>
+                                </div>
+                                <div className="flex justify-between text-base text-gray-700 font-medium">
+                                  <span>{line.qtyKg} kg | {line.qtyCon} con</span>
+                                  <span>Giá: {formatCurrency(line.price)}</span>
+                                </div>
+                              </div>
                             ))}
-                        </div>
+                          </div>
+                        )
                     )}
                 </>
             )}
