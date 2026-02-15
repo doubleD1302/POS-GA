@@ -113,7 +113,6 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
   const [suppliers, setSuppliers] = useState<Partner[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [supplierId, setSupplierId] = useState('');
-  const [importMode, setImportMode] = useState<'PURCHASE' | 'ADJUST'>('PURCHASE');
   
   // Danh sách hàng trong phiếu
   const [ticketItems, setTicketItems] = useState<{
@@ -285,36 +284,19 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
 
   const handleImport = async () => {
     if(ticketItems.length === 0) return alert('Chưa có hàng hoá nào');
-    
-    // Nếu là Nhập Mua thì bắt buộc chọn NCC
-    if(importMode === 'PURCHASE' && !supplierId) return alert('Chọn nhà cung cấp');
+    if(!supplierId) return alert('Chọn nhà cung cấp');
 
-    if (importMode === 'PURCHASE') {
-        // Logic cũ
-        await db.createPurchase(supplierId, new Date().toISOString().split('T')[0], 
-            ticketItems.map(i => ({ 
-                productId: i.pid, 
-                qtyKg: i.kg, 
-                qtyCon: i.con, 
-                price: i.price,
-                gender: i.gender
-            })),
-            0, 0
-        );
-        alert('Đã lưu phiếu nhập mua!');
-    } else {
-        // Logic mới: Kiểm tồn
-        await db.createStockAdjustment(new Date().toISOString().split('T')[0], 
-            ticketItems.map(i => ({ 
-                productId: i.pid, 
-                qtyKg: i.kg, 
-                qtyCon: i.con, 
-                price: i.price,
-                gender: i.gender
-            }))
-        );
-        alert('Đã cập nhật kho (Kiểm tồn)!');
-    }
+    await db.createPurchase(supplierId, new Date().toISOString().split('T')[0], 
+      ticketItems.map(i => ({ 
+        productId: i.pid, 
+        qtyKg: i.kg, 
+        qtyCon: i.con, 
+        price: i.price,
+        gender: i.gender
+      })),
+      0, 0
+    );
+    alert('Đã lưu phiếu nhập mua!');
     
     navigate('inventory');
   }
@@ -379,24 +361,7 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
         <ICONS.Inventory /> Nhập Hàng
       </h1>
 
-      {/* MODE TABS */}
-      <div className="flex bg-gray-100 p-1 rounded-lg mb-4 border border-gray-200">
-        <button 
-            onClick={() => setImportMode('PURCHASE')}
-            className={`flex-1 py-2 text-sm font-bold rounded-md transition-all ${importMode === 'PURCHASE' ? 'bg-white shadow text-blue-700' : 'text-gray-500'}`}
-        >
-            NHẬP MUA (NCC)
-        </button>
-        <button 
-            onClick={() => setImportMode('ADJUST')}
-            className={`flex-1 py-2 text-sm font-bold rounded-md transition-all ${importMode === 'ADJUST' ? 'bg-white shadow text-purple-700' : 'text-gray-500'}`}
-        >
-            KIỂM TỒN (NỘI BỘ)
-        </button>
-      </div>
-
       {/* 1. SUPPLIER SELECT */}
-      {importMode === 'PURCHASE' && (
       <Card className="mb-4 bg-blue-50 border-blue-100">
          <div className="flex justify-between items-center mb-1">
             <label className="text-xs font-bold text-blue-800 uppercase">Nhà Cung Cấp</label>
@@ -411,7 +376,6 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
            <button onClick={() => setIsSupModalOpen(true)} className="px-4 bg-blue-600 text-white rounded-lg font-bold shadow-sm">+</button>
          </div>
       </Card>
-      )}
 
       {/* 2. WEIGHING CALCULATOR */}
       <Card className="mb-6 border-brand-200 shadow-md">
@@ -1081,7 +1045,9 @@ function CashbookPage() {
 
 function PartnersPage() {
   const [partners, setPartners] = useState<Partner[]>([]);
-  const [filter, setFilter] = useState<'ALL' | PartnerType>('ALL');
+  const [debtFilter, setDebtFilter] = useState<'ALL' | 'HAS_DEBT' | 'NO_DEBT'>('ALL');
+  const [nameFilter, setNameFilter] = useState<'ALL' | 'A_Z' | 'Z_A'>('ALL');
+  const [searchTerm, setSearchTerm] = useState('');
   
   // Modal Add/Edit
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -1089,6 +1055,7 @@ function PartnersPage() {
   const [formName, setFormName] = useState('');
   const [formPhone, setFormPhone] = useState('');
   const [formType, setFormType] = useState<PartnerType>(PartnerType.CUSTOMER);
+  const [formDebt, setFormDebt] = useState('0');
 
   // Modal Detail & Pay Debt
   const [detailPartner, setDetailPartner] = useState<Partner | null>(null);
@@ -1101,12 +1068,32 @@ function PartnersPage() {
 
   useEffect(() => {
     loadData();
-  }, [filter]);
+  }, [debtFilter, nameFilter, searchTerm]);
 
   const loadData = () => {
-    const all = db.getPartners();
-    if (filter === 'ALL') setPartners(all);
-    else setPartners(all.filter(p => p.type === filter));
+    let list = db.getPartners();
+
+    if (debtFilter === 'HAS_DEBT') {
+      list = list.filter(p => p.debt > 0);
+    } else if (debtFilter === 'NO_DEBT') {
+      list = list.filter(p => p.debt <= 0);
+    }
+
+    const keyword = searchTerm.trim().toLowerCase();
+    if (keyword) {
+      list = list.filter(p =>
+        p.name.toLowerCase().includes(keyword) ||
+        (p.phone || '').toLowerCase().includes(keyword)
+      );
+    }
+
+    if (nameFilter === 'A_Z') {
+      list = [...list].sort((a, b) => a.name.localeCompare(b.name, 'vi', { sensitivity: 'base' }));
+    } else if (nameFilter === 'Z_A') {
+      list = [...list].sort((a, b) => b.name.localeCompare(a.name, 'vi', { sensitivity: 'base' }));
+    }
+
+    setPartners(list);
   }
 
   // --- Logic Detail & Pay ---
@@ -1156,23 +1143,27 @@ function PartnersPage() {
       setFormName(p.name);
       setFormPhone(p.phone);
       setFormType(p.type);
+      setFormDebt(p.debt.toString());
     } else {
       setEditingId(null);
       setFormName('');
       setFormPhone('');
       setFormType(PartnerType.CUSTOMER);
+      setFormDebt('0');
     }
     setIsModalOpen(true);
   };
 
   const handleSave = () => {
     if (!formName) return alert("Vui lòng nhập tên");
+    const debt = Number(formDebt);
+    if (isNaN(debt) || debt < 0) return alert("Dư nợ không hợp lệ");
     const partner: Partner = {
       id: editingId || `partner-${Date.now()}`,
       name: formName,
       phone: formPhone,
       type: formType,
-      debt: editingId ? (partners.find(p => p.id === editingId)?.debt || 0) : 0
+      debt
     };
     db.savePartner(partner);
     loadData();
@@ -1193,11 +1184,26 @@ function PartnersPage() {
          <Button onClick={(e: any) => handleOpenEdit(e)} className="text-sm px-3 py-1">+ Thêm Mới</Button>
        </div>
 
-       {/* Filter Pills */}
+       <Input
+        label="Tìm kiếm đối tác"
+        value={searchTerm}
+        onChange={(e: any) => setSearchTerm(e.target.value)}
+        placeholder="Nhập tên hoặc số điện thoại..."
+        className="mb-4"
+       />
+
+       <div className="mb-2 text-xs font-bold text-gray-500 uppercase">Lọc theo nợ</div>
        <div className="flex gap-2 mb-4 overflow-x-auto no-scrollbar">
-          <button onClick={() => setFilter('ALL')} className={`px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${filter === 'ALL' ? 'bg-gray-800 text-white' : 'bg-gray-200 text-gray-700'}`}>Tất cả</button>
-          <button onClick={() => setFilter(PartnerType.CUSTOMER)} className={`px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${filter === PartnerType.CUSTOMER ? 'bg-orange-500 text-white' : 'bg-gray-200 text-gray-700'}`}>Khách hàng</button>
-          <button onClick={() => setFilter(PartnerType.SUPPLIER)} className={`px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${filter === PartnerType.SUPPLIER ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'}`}>Nhà cung cấp</button>
+         <button onClick={() => setDebtFilter('ALL')} className={`px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${debtFilter === 'ALL' ? 'bg-gray-800 text-white' : 'bg-gray-200 text-gray-700'}`}>Mọi công nợ</button>
+         <button onClick={() => setDebtFilter('HAS_DEBT')} className={`px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${debtFilter === 'HAS_DEBT' ? 'bg-orange-500 text-white' : 'bg-gray-200 text-gray-700'}`}>Có nợ</button>
+         <button onClick={() => setDebtFilter('NO_DEBT')} className={`px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${debtFilter === 'NO_DEBT' ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700'}`}>Hết nợ</button>
+       </div>
+
+       <div className="mb-2 text-xs font-bold text-gray-500 uppercase">Lọc theo tên</div>
+       <div className="flex gap-2 mb-4 overflow-x-auto no-scrollbar">
+         <button onClick={() => setNameFilter('ALL')} className={`px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${nameFilter === 'ALL' ? 'bg-gray-800 text-white' : 'bg-gray-200 text-gray-700'}`}>Mặc định</button>
+         <button onClick={() => setNameFilter('A_Z')} className={`px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${nameFilter === 'A_Z' ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-700'}`}>Tên A → Z</button>
+         <button onClick={() => setNameFilter('Z_A')} className={`px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${nameFilter === 'Z_A' ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-700'}`}>Tên Z → A</button>
        </div>
 
        {/* Partner List */}
@@ -1242,6 +1248,13 @@ function PartnersPage() {
             />
             <Input label="Tên" value={formName} onChange={(e: any) => setFormName(e.target.value)} placeholder="Tên khách/trại..." />
             <Input label="Số điện thoại" value={formPhone} onChange={(e: any) => setFormPhone(e.target.value)} type="tel" />
+            <Input
+              label="Dư nợ hiện tại"
+              type="number"
+              value={formDebt}
+              onChange={(e: any) => setFormDebt(e.target.value)}
+              placeholder="0"
+            />
             
             <div className="flex gap-2 pt-2">
               {editingId && <Button variant="danger" className="flex-1" onClick={() => handleDelete(editingId)}>Xóa</Button>}
