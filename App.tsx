@@ -113,25 +113,31 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
   const [suppliers, setSuppliers] = useState<Partner[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [supplierId, setSupplierId] = useState('');
-  
-  // Danh sách hàng trong phiếu
+  const [importMode, setImportMode] = useState<'QUICK' | 'DETAIL'>('QUICK');
+
   const [ticketItems, setTicketItems] = useState<{
-      pid: string, pName: string, kg: number, con: number, price: number, total: number,
-      gross: number, tare: number, details: string
+      pid: string;
+      pName: string;
+      gender: Gender;
+      kg: number;
+      con: number;
+      price: number;
+      total: number;
+      gross: number;
+      tare: number;
+      details: string;
   }[]>([]);
 
-  // State bàn cân
   const [currentPid, setCurrentPid] = useState('');
-  // w: cân, t: bì, c: con
-  const [weightList, setWeightList] = useState<{w: number, t: number, c: number}[]>([]); 
-  
+  const [weightList, setWeightList] = useState<{w: number, t: number, c: number}[]>([]);
   const [currentWeightInput, setCurrentWeightInput] = useState('');
-  const [currentTareInput, setCurrentTareInput] = useState(''); 
+  const [currentTareInput, setCurrentTareInput] = useState('');
   const [currentCountInput, setCurrentCountInput] = useState('');
+  const [quickNetInput, setQuickNetInput] = useState('');
+  const [quickConInput, setQuickConInput] = useState('');
   const [priceMale, setPriceMale] = useState('');
   const [priceFemale, setPriceFemale] = useState('');
-  
-  // Modals
+
   const [isSupModalOpen, setIsSupModalOpen] = useState(false);
   const [newSupName, setNewSupName] = useState('');
   const [newSupPhone, setNewSupPhone] = useState('');
@@ -141,50 +147,71 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
   const [prodPrice, setProdPrice] = useState('');
 
   const weightInputRef = useRef<HTMLInputElement>(null);
-  const countInputRef = useRef<HTMLInputElement>(null);
-  const [gender, setGender] = useState<'MALE'|'FEMALE'>('MALE');
-
-  useEffect(() => {
-    // 1. Tải danh sách Gà ngay lập tức
-    const prodList = db.getProducts();
-    setProducts(prodList);
-
-    // 2. Tải danh sách Nhà cung cấp
-    const supList = db.getPartners(PartnerType.SUPPLIER);
-    setSuppliers(supList);
-    
-    // Tự động chọn nhà cung cấp đầu tiên nếu có
-    if (supList.length > 0) {
-        setSupplierId(supList[0].id);
-    }
-  }, []);
-
+  const [gender, setGender] = useState<Gender>('MALE');
 
   const loadSuppliers = () => {
     const list = db.getPartners(PartnerType.SUPPLIER);
     setSuppliers(list);
-    if (!supplierId && list.length > 0) setSupplierId(list[0].id);
-  }
+    return list;
+  };
 
   const loadProducts = () => {
-    setProducts(db.getProducts());
-  }
+    const list = db.getProducts();
+    setProducts(list);
+    return list;
+  };
+
+  const saveLastDefaults = (override?: Partial<{ supplierId: string; productId: string; gender: Gender; mode: 'QUICK' | 'DETAIL'; priceMale: string; priceFemale: string }>) => {
+    const payload = {
+      supplierId,
+      productId: currentPid,
+      gender,
+      mode: importMode,
+      priceMale,
+      priceFemale,
+      ...override,
+    };
+    localStorage.setItem('gttd_import_defaults', JSON.stringify(payload));
+  };
 
   useEffect(() => {
-    loadProducts();
-    loadSuppliers();
+    const prodList = loadProducts();
+    const supList = loadSuppliers();
+
+    const rawDefaults = localStorage.getItem('gttd_import_defaults');
+    if (rawDefaults) {
+      try {
+        const defaults = JSON.parse(rawDefaults);
+        if (defaults.mode === 'QUICK' || defaults.mode === 'DETAIL') setImportMode(defaults.mode);
+        if (defaults.gender === 'MALE' || defaults.gender === 'FEMALE') setGender(defaults.gender);
+        if (typeof defaults.priceMale === 'string') setPriceMale(defaults.priceMale);
+        if (typeof defaults.priceFemale === 'string') setPriceFemale(defaults.priceFemale);
+        if (defaults.productId && prodList.some(p => p.id === defaults.productId)) setCurrentPid(defaults.productId);
+        if (defaults.supplierId && supList.some(s => s.id === defaults.supplierId)) {
+          setSupplierId(defaults.supplierId);
+        } else if (supList.length > 0) {
+          setSupplierId(supList[0].id);
+        }
+      } catch {
+        if (supList.length > 0) setSupplierId(supList[0].id);
+      }
+    } else if (supList.length > 0) {
+      setSupplierId(supList[0].id);
+    }
   }, []);
 
-  // --- 1. LOGIC TÍNH TOÁN (Tự động tính mỗi khi weightList thay đổi) ---
+  useEffect(() => {
+    if (supplierId || currentPid) saveLastDefaults();
+  }, [supplierId, currentPid, gender, importMode, priceMale, priceFemale]);
+
   const totalGrossWeight = weightList.reduce((a, b) => a + b.w, 0);
   const totalTare = weightList.reduce((a, b) => a + (b.t || 0), 0);
   const totalCon = weightList.reduce((a, b) => a + (b.c || 0), 0);
   const netWeight = Math.max(0, totalGrossWeight - totalTare);
-  
-  // Hàm thêm mã cân vào danh sách tạm
+
   const handleAddWeight = () => {
     const w = parseFloat(currentWeightInput);
-    const t = parseFloat(currentTareInput) || 0; 
+    const t = parseFloat(currentTareInput) || 0;
     const c = parseInt(currentCountInput) || 0;
 
     if (isNaN(w) || w <= 0) {
@@ -194,7 +221,6 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
     }
 
     setWeightList([...weightList, { w, t, c }]);
-    // Reset ô nhập để nhập tiếp
     setCurrentWeightInput('');
     setCurrentTareInput('');
     setCurrentCountInput('');
@@ -202,119 +228,136 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
   };
 
   const handleRemoveWeight = (index: number) => {
-    const n = [...weightList];
-    n.splice(index, 1);
-    setWeightList(n);
+    const next = [...weightList];
+    next.splice(index, 1);
+    setWeightList(next);
   };
 
-  // --- 2. HÀM THÊM VÀO PHIẾU (QUAN TRỌNG) ---
-  // --- 2. HÀM THÊM VÀO PHIẾU (ĐÃ SỬA LOGIC GỘP DÒNG) ---
   const handleAddItemToTicket = () => {
-    // Validate dữ liệu
     if (!currentPid) return alert("Chưa chọn loại gà!");
-    if (weightList.length === 0) return alert("Chưa nhập mã cân nào!");
-    if (netWeight <= 0) return alert("Khối lượng thực bằng 0!");
-    
-    // Lấy giá theo giới tính đang chọn
-    const actualPrice = gender === 'MALE' ? priceMale : priceFemale;
-    if (!actualPrice) return alert("Chưa nhập giá nhập!");
 
-    const prod = products.find(p => p.id === currentPid);
-    const priceNum = parseFloat(actualPrice);
-    
-    // Tạo chuỗi chi tiết: "50-2, 30-1"
-    const detailsStr = weightList.map(i => `${i.w}${i.t > 0 ? `(-${i.t}b)` : ''}`).join(' + ');
+    const actualPriceByThousand = gender === 'MALE' ? priceMale : priceFemale;
+    if (!actualPriceByThousand) return alert("Chưa nhập giá nhập!");
+    const priceNum = (parseFloat(actualPriceByThousand) || 0) * 1000;
+    if (priceNum <= 0) return alert("Giá nhập không hợp lệ!");
 
-    // Object cho dòng mới
-    const newItem = {
-      pid: currentPid,
-      // Tên hiển thị rõ ràng Trống/Mái
-      pName: `${prod ? prod.name : 'Unknown'} (${gender === 'MALE' ? 'Trống' : 'Mái'})`, 
-      gender: gender,
-      kg: netWeight,
-      con: totalCon,
-      price: priceNum,
-      total: netWeight * priceNum,
-      gross: totalGrossWeight,
-      tare: totalTare,
-      details: detailsStr
-    };
+    let itemKg = 0;
+    let itemCon = 0;
+    let itemGross = 0;
+    let itemTare = 0;
+    let detailsStr = '';
 
-    // --- LOGIC GỘP DÒNG THÔNG MINH ---
-    // Chỉ gộp nếu trùng PID + trùng Giới Tính + trùng Giá
-    const existingIndex = ticketItems.findIndex(item => 
-        item.pid === newItem.pid && 
-        item.gender === newItem.gender && 
-        item.price === newItem.price
-    );
-
-    if (existingIndex >= 0) {
-        // Nếu đã có dòng y hệt (cùng loại, cùng giới tính, cùng giá) -> Cộng dồn số lượng
-        const updatedItems = [...ticketItems];
-        const existing = updatedItems[existingIndex];
-        
-        updatedItems[existingIndex] = {
-            ...existing,
-            kg: existing.kg + newItem.kg,
-            con: existing.con + newItem.con,
-            total: existing.total + newItem.total, // Cộng tiền
-            gross: existing.gross + newItem.gross,
-            tare: existing.tare + newItem.tare,
-            details: `${existing.details} + ${newItem.details}` // Nối chi tiết cân
-        };
-        setTicketItems(updatedItems);
+    if (importMode === 'DETAIL') {
+      if (weightList.length === 0) return alert("Chưa nhập mã cân nào!");
+      if (netWeight <= 0) return alert("Khối lượng thực bằng 0!");
+      itemKg = netWeight;
+      itemCon = totalCon;
+      itemGross = totalGrossWeight;
+      itemTare = totalTare;
+      detailsStr = weightList.map(i => `${i.w}${i.t > 0 ? `(-${i.t}b)` : ''}`).join(' + ');
     } else {
-        // Nếu khác (VD: khác giới tính hoặc khác giá) -> Thêm dòng mới
-        setTicketItems([...ticketItems, newItem]);
+      itemKg = parseFloat(quickNetInput);
+      itemCon = parseInt(quickConInput) || 0;
+      if (isNaN(itemKg) || itemKg <= 0) return alert("Nhập khối lượng thực (kg) hợp lệ!");
+      itemGross = itemKg;
+      itemTare = 0;
+      detailsStr = 'Nhập nhanh';
     }
 
-    // Reset bàn cân sau khi thêm xong
+    const prod = products.find(p => p.id === currentPid);
+    const newItem = {
+      pid: currentPid,
+      pName: `${prod ? prod.name : 'Unknown'} (${gender === 'MALE' ? 'Trống' : 'Mái'})`,
+      gender,
+      kg: itemKg,
+      con: itemCon,
+      price: priceNum,
+      total: itemKg * priceNum,
+      gross: itemGross,
+      tare: itemTare,
+      details: detailsStr,
+    };
+
+    const existingIndex = ticketItems.findIndex(item => (
+      item.pid === newItem.pid && item.gender === newItem.gender && item.price === newItem.price
+    ));
+
+    if (existingIndex >= 0) {
+      const updatedItems = [...ticketItems];
+      const existing = updatedItems[existingIndex];
+      updatedItems[existingIndex] = {
+        ...existing,
+        kg: existing.kg + newItem.kg,
+        con: existing.con + newItem.con,
+        total: existing.total + newItem.total,
+        gross: existing.gross + newItem.gross,
+        tare: existing.tare + newItem.tare,
+        details: `${existing.details} + ${newItem.details}`,
+      };
+      setTicketItems(updatedItems);
+    } else {
+      setTicketItems([...ticketItems, newItem]);
+    }
+
     setWeightList([]);
     setCurrentWeightInput('');
     setCurrentTareInput('');
     setCurrentCountInput('');
-    // Lưu ý: Không reset giá và giới tính để tiện nhập mã cân tiếp theo
+    setQuickNetInput('');
+    setQuickConInput('');
+    saveLastDefaults();
   };
 
   const handleRemoveTicketItem = (idx: number) => {
-    const n = [...ticketItems];
-    n.splice(idx, 1);
-    setTicketItems(n);
-  }
+    const next = [...ticketItems];
+    next.splice(idx, 1);
+    setTicketItems(next);
+  };
 
   const handleImport = async () => {
-    if(ticketItems.length === 0) return alert('Chưa có hàng hoá nào');
-    if(!supplierId) return alert('Chọn nhà cung cấp');
+    if (ticketItems.length === 0) return alert('Chưa có hàng hoá nào');
+    if (!supplierId) return alert('Chọn nhà cung cấp');
 
-    await db.createPurchase(supplierId, new Date().toISOString().split('T')[0], 
-      ticketItems.map(i => ({ 
-        productId: i.pid, 
-        qtyKg: i.kg, 
-        qtyCon: i.con, 
+    await db.createPurchase(
+      supplierId,
+      new Date().toISOString().split('T')[0],
+      ticketItems.map(i => ({
+        productId: i.pid,
+        qtyKg: i.kg,
+        qtyCon: i.con,
         price: i.price,
-        gender: i.gender
+        gender: i.gender,
       })),
-      0, 0
+      0,
+      0
     );
     alert('Đã lưu phiếu nhập mua!');
-    
     navigate('inventory');
-  }
+  };
 
-  // Helpers
   const handleAddSupplier = () => {
     if (!newSupName) return;
     const newSup: Partner = { id: `s-${Date.now()}`, name: newSupName, phone: newSupPhone, type: PartnerType.SUPPLIER, debt: 0 };
-    db.savePartner(newSup); loadSuppliers(); setSupplierId(newSup.id); setIsSupModalOpen(false); setNewSupName(''); setNewSupPhone('');
+    db.savePartner(newSup);
+    const list = loadSuppliers();
+    setSupplierId(newSup.id);
+    setIsSupModalOpen(false);
+    setNewSupName('');
+    setNewSupPhone('');
+    if (list.length > 0) saveLastDefaults({ supplierId: newSup.id });
   };
 
   const handleDeleteSupplier = () => {
-     if (!supplierId) return;
-     if (window.confirm("Xoá nhà cung cấp này?")) {
-        db.deletePartner(supplierId);
-        setTimeout(() => { const list = db.getPartners(PartnerType.SUPPLIER); setSuppliers(list); setSupplierId(list.length > 0 ? list[0].id : ''); }, 50);
-     }
-  }
+    if (!supplierId) return;
+    if (window.confirm("Xoá nhà cung cấp này?")) {
+      db.deletePartner(supplierId);
+      setTimeout(() => {
+        const list = db.getPartners(PartnerType.SUPPLIER);
+        setSuppliers(list);
+        setSupplierId(list.length > 0 ? list[0].id : '');
+      }, 50);
+    }
+  };
 
   const handleOpenProdModal = (pid?: string) => {
     if (pid) {
@@ -322,36 +365,33 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
       if (p) {
         setEditingProduct(p);
         setProdName(p.name);
-        // SỬA: Thay defaultPrice bằng priceMale
-        setProdPrice(p.priceMale ? p.priceMale.toString() : '');
+        setProdPrice(p.priceMale ? (p.priceMale / 1000).toString() : '');
       }
     } else {
       setEditingProduct(null);
-      setProdName('');    
+      setProdName('');
       setProdPrice('');
     }
     setIsProdModalOpen(true);
-  }
+  };
 
   const handleSaveProduct = () => {
     if (!prodName) return;
-    
-    // SỬA: Cập nhật cấu trúc object newProduct
+
     const newProduct: Product = {
       id: editingProduct ? editingProduct.id : `p-${Date.now()}`,
       name: prodName,
-      // Vì modal thêm nhanh chỉ có 1 ô nhập giá, ta tạm gán vào giá bán Trống
-      priceMale: Number(prodPrice) || 0,
-      priceFemale: 0, // Mặc định 0
-      costMale: 0,    // Mặc định 0
-      costFemale: 0   // Mặc định 0
+      priceMale: (Number(prodPrice) || 0) * 1000,
+      priceFemale: editingProduct?.priceFemale || 0,
+      costMale: editingProduct?.costMale || 0,
+      costFemale: editingProduct?.costFemale || 0,
     };
-    
+
     db.saveProduct(newProduct);
-    loadProducts();
-    if (!editingProduct) setCurrentPid(newProduct.id);
+    const nextProducts = loadProducts();
+    if (!editingProduct && nextProducts.some(p => p.id === newProduct.id)) setCurrentPid(newProduct.id);
     setIsProdModalOpen(false);
-  }
+  };
 
   const currentSupplier = suppliers.find(s => s.id === supplierId);
 
@@ -361,195 +401,204 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
         <ICONS.Inventory /> Nhập Hàng
       </h1>
 
-      {/* 1. SUPPLIER SELECT */}
       <Card className="mb-4 bg-blue-50 border-blue-100">
-         <div className="flex justify-between items-center mb-1">
-            <label className="text-xs font-bold text-blue-800 uppercase">Nhà Cung Cấp</label>
-            {supplierId && <button onClick={handleDeleteSupplier} className="text-red-400 text-xs">Xoá</button>}
-         </div>
-         <div className="flex gap-2">
-           <div className="flex-1">
-              <select value={supplierId} onChange={(e) => setSupplierId(e.target.value)} className="w-full px-3 py-3 bg-white border border-blue-200 rounded-lg text-gray-800 font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm">
-                 {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </select>
-           </div>
-           <button onClick={() => setIsSupModalOpen(true)} className="px-4 bg-blue-600 text-white rounded-lg font-bold shadow-sm">+</button>
-         </div>
+        <div className="flex justify-between items-center mb-1">
+          <label className="text-xs font-bold text-blue-800 uppercase">Nhà Cung Cấp</label>
+          {supplierId && <button onClick={handleDeleteSupplier} className="text-red-400 text-xs">Xoá</button>}
+        </div>
+        <div className="flex gap-2">
+          <div className="flex-1">
+            <select value={supplierId} onChange={(e) => setSupplierId(e.target.value)} className="w-full px-3 py-3 bg-white border border-blue-200 rounded-lg text-gray-800 font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm">
+              {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </div>
+          <button onClick={() => setIsSupModalOpen(true)} className="px-4 bg-blue-600 text-white rounded-lg font-bold shadow-sm">+</button>
+        </div>
       </Card>
 
-      {/* 2. WEIGHING CALCULATOR */}
       <Card className="mb-6 border-brand-200 shadow-md">
-        <div className="flex justify-between items-center mb-3">
-            <h3 className="font-bold text-brand-800 flex items-center gap-2"><span>⚖️ Bàn Cân (Chi tiết)</span></h3>
-            <div className="text-xs text-gray-500 italic">Nhập: Cân tổng - Bì - Số con</div>
+        <div className="flex flex-wrap justify-between items-center gap-2 mb-3">
+          <h3 className="font-bold text-brand-800 flex items-center gap-2"><span>Nhập hàng</span></h3>
+          <div className="flex bg-gray-100 rounded-lg p-1 border border-gray-200">
+            <button
+              onClick={() => setImportMode('QUICK')}
+              className={`px-3 py-1 rounded text-xs font-bold transition-all ${importMode === 'QUICK' ? 'bg-brand-600 text-white shadow' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              Nhanh
+            </button>
+            <button
+              onClick={() => setImportMode('DETAIL')}
+              className={`px-3 py-1 rounded text-xs font-bold transition-all ${importMode === 'DETAIL' ? 'bg-brand-600 text-white shadow' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              Chi tiết
+            </button>
+          </div>
         </div>
 
-        {/* Product Select MỚI - CÓ CHỌN GIỚI TÍNH */}
         <div className="flex gap-2 mb-3">
-             <div className="flex-[2]">
-                <select className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500" value={currentPid} onChange={e => setCurrentPid(e.target.value)}>
-                  <option value="">-- Chọn Loại Gà --</option>
-                  {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
-             </div>
-             
-             {/* Nút Toggle Trống / Mái */}
-             <div className="flex bg-gray-100 rounded-lg p-1 border border-gray-200">
-                <button 
-                    onClick={() => setGender('MALE')}
-                    className={`px-3 py-1 rounded text-xs font-bold transition-all ${gender === 'MALE' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-gray-600'}`}
-                >
-                    TRỐNG
-                </button>
-                <button 
-                    onClick={() => setGender('FEMALE')}
-                    className={`px-3 py-1 rounded text-xs font-bold transition-all ${gender === 'FEMALE' ? 'bg-pink-500 text-white shadow' : 'text-gray-400 hover:text-gray-600'}`}
-                >
-                    MÁI
-                </button>
-             </div>
-
-             <button onClick={() => handleOpenProdModal(currentPid)} className={`px-3 rounded-lg border ${currentPid ? 'bg-gray-100' : 'bg-brand-600 text-white font-bold'}`}>{currentPid ? '✎' : '+'}</button>
+          <div className="flex-[2]">
+            <select className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500" value={currentPid} onChange={e => setCurrentPid(e.target.value)}>
+              <option value="">-- Chọn Loại Gà --</option>
+              {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+          <div className="flex bg-gray-100 rounded-lg p-1 border border-gray-200">
+            <button
+              onClick={() => setGender('MALE')}
+              className={`px-3 py-1 rounded text-xs font-bold transition-all ${gender === 'MALE' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-gray-600'}`}
+            >
+              TRỐNG
+            </button>
+            <button
+              onClick={() => setGender('FEMALE')}
+              className={`px-3 py-1 rounded text-xs font-bold transition-all ${gender === 'FEMALE' ? 'bg-pink-500 text-white shadow' : 'text-gray-400 hover:text-gray-600'}`}
+            >
+              MÁI
+            </button>
+          </div>
+          <button onClick={() => handleOpenProdModal(currentPid)} className={`px-3 rounded-lg border ${currentPid ? 'bg-gray-100' : 'bg-brand-600 text-white font-bold'}`}>{currentPid ? '✎' : '+'}</button>
         </div>
 
-        {/* Weighing Input - 3 Ô NHẬP LIỆU */}
-        <div className="flex gap-2 mb-3 items-end">
-            <div className="flex-[2]">
-                 <label className="text-[10px] text-gray-500 font-bold ml-1">TỔNG KG</label>
-                 <input ref={weightInputRef} type="number" placeholder="0.0" className="w-full px-2 py-2 text-lg font-bold text-gray-800 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none" value={currentWeightInput} onChange={e => setCurrentWeightInput(e.target.value)} />
+        {importMode === 'QUICK' ? (
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Thực nhập (kg)" type="number" value={quickNetInput} onChange={(e: any) => setQuickNetInput(e.target.value)} placeholder="0" />
+            <Input label="Số con" type="number" value={quickConInput} onChange={(e: any) => setQuickConInput(e.target.value)} placeholder="0" />
+          </div>
+        ) : (
+          <>
+            <div className="flex gap-2 mb-3 items-end">
+              <div className="flex-[2]">
+                <label className="text-[10px] text-gray-500 font-bold ml-1">TỔNG KG</label>
+                <input ref={weightInputRef} type="number" placeholder="0.0" className="w-full px-2 py-2 text-lg font-bold text-gray-800 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none" value={currentWeightInput} onChange={e => setCurrentWeightInput(e.target.value)} />
+              </div>
+              <div className="flex-1">
+                <label className="text-[10px] text-red-500 font-bold ml-1">BÌ (KG)</label>
+                <input type="number" placeholder="0" className="w-full px-2 py-2 text-lg font-bold text-red-600 bg-red-50 border border-red-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:outline-none" value={currentTareInput} onChange={e => setCurrentTareInput(e.target.value)} />
+              </div>
+              <div className="flex-1">
+                <label className="text-[10px] text-gray-500 font-bold ml-1">CON</label>
+                <input type="number" placeholder="0" className="w-full px-2 py-2 text-lg font-bold text-center text-gray-800 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none" value={currentCountInput} onChange={e => setCurrentCountInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleAddWeight(); }} />
+              </div>
+              <Button onClick={handleAddWeight} className="h-[46px] w-12 flex items-center justify-center">↵</Button>
             </div>
-            <div className="flex-1">
-                 <label className="text-[10px] text-red-500 font-bold ml-1">BÌ (KG)</label>
-                 <input type="number" placeholder="0" className="w-full px-2 py-2 text-lg font-bold text-red-600 bg-red-50 border border-red-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:outline-none" value={currentTareInput} onChange={e => setCurrentTareInput(e.target.value)} />
-            </div>
-            <div className="flex-1">
-                 <label className="text-[10px] text-gray-500 font-bold ml-1">CON</label>
-                 <input ref={countInputRef} type="number" placeholder="0" className="w-full px-2 py-2 text-lg font-bold text-center text-gray-800 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none" value={currentCountInput} onChange={e => setCurrentCountInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleAddWeight(); }} />
-            </div>
-            {/* Nút Enter thêm mã cân */}
-            <Button onClick={handleAddWeight} className="h-[46px] w-12 flex items-center justify-center">↵</Button>
-        </div>
 
-        {/* List Chips */}
-        {weightList.length > 0 && (
-            <div className="flex flex-wrap gap-2 mb-4 p-2 bg-gray-50 rounded-lg border border-gray-100 max-h-32 overflow-y-auto">
+            {weightList.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-4 p-2 bg-gray-50 rounded-lg border border-gray-100 max-h-32 overflow-y-auto">
                 {weightList.map((item, i) => (
-                    <span key={i} className="inline-flex items-center px-2 py-1 rounded-md text-sm font-medium bg-white border border-gray-200 shadow-sm text-gray-700">
-                        {item.w} <span className="text-red-400 text-xs mx-1">-{item.t}bì</span>
-                        <span className="text-gray-400 text-xs">({item.c}c)</span>
-                        <button onClick={() => handleRemoveWeight(i)} className="ml-1 text-red-500 font-bold">×</button>
-                    </span>
+                  <span key={i} className="inline-flex items-center px-2 py-1 rounded-md text-sm font-medium bg-white border border-gray-200 shadow-sm text-gray-700">
+                    {item.w} <span className="text-red-400 text-xs mx-1">-{item.t}bì</span>
+                    <span className="text-gray-400 text-xs">({item.c}c)</span>
+                    <button onClick={() => handleRemoveWeight(i)} className="ml-1 text-red-500 font-bold">×</button>
+                  </span>
                 ))}
-            </div>
-        )}
+              </div>
+            )}
 
-        {/* Calculation Grid */}
-        <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-2">
-            <div className="flex justify-between items-center text-sm">
+            <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-2">
+              <div className="flex justify-between items-center text-sm">
                 <span className="text-gray-500">Tổng cân (Gross):</span>
                 <span className="font-bold text-gray-800">{totalGrossWeight.toFixed(2)} kg</span>
-            </div>
-            <div className="flex justify-between items-center text-sm">
+              </div>
+              <div className="flex justify-between items-center text-sm">
                 <span className="text-gray-500">Tổng trừ bì:</span>
                 <span className="font-bold text-red-500">-{totalTare.toFixed(2)} kg</span>
-            </div>
-            <div className="border-t border-gray-300 pt-2 flex justify-between items-center">
+              </div>
+              <div className="border-t border-gray-300 pt-2 flex justify-between items-center">
                 <span className="font-bold text-brand-700 text-lg">Thực Nhập (Net):</span>
                 <span className="text-2xl font-bold text-brand-600">{netWeight.toFixed(2)} kg</span>
+              </div>
             </div>
-        </div>
+          </>
+        )}
 
         <div className="grid grid-cols-2 gap-3 mt-4">
-             <Input label="Giá nhập / kg" type="number" value={gender === 'MALE' ? priceMale : priceFemale} onChange={(e: any) => gender === 'MALE' ? setPriceMale(e.target.value) : setPriceFemale(e.target.value)} className="font-bold" placeholder="0" />
-             <div className="flex flex-col">
-                <label className="text-sm font-bold text-gray-700 mb-1">Tổng số con</label>
-                <div className="w-full px-3 py-2 bg-gray-100 border border-gray-200 rounded-lg text-gray-800 font-bold">
-                    {totalCon}
-                </div>
-             </div>
+          <Input label="Giá nhập (nghìn VND/kg)" type="number" value={gender === 'MALE' ? priceMale : priceFemale} onChange={(e: any) => gender === 'MALE' ? setPriceMale(e.target.value) : setPriceFemale(e.target.value)} className="font-bold" placeholder="0" />
+          <div className="flex flex-col">
+            <label className="text-sm font-bold text-gray-700 mb-1">Số con</label>
+            <div className="w-full px-3 py-2 bg-gray-100 border border-gray-200 rounded-lg text-gray-800 font-bold">
+              {importMode === 'DETAIL' ? totalCon : (parseInt(quickConInput) || 0)}
+            </div>
+          </div>
         </div>
-        
+
         <div className="mt-4 pt-2 border-t border-dashed border-gray-200">
-             {/* Nút bấm ĐÃ FIX: Gọi trực tiếp hàm handleAddItemToTicket */}
-             <Button onClick={handleAddItemToTicket} className="w-full py-3 text-lg">⬇ Thêm Vào Phiếu</Button>
+          <Button onClick={handleAddItemToTicket} className="w-full py-3 text-lg">⬇ Thêm Vào Phiếu</Button>
         </div>
       </Card>
 
-      {/* 3. TICKET PREVIEW */}
       {ticketItems.length > 0 && (
-          <div className="bg-white rounded-none shadow-lg border border-gray-300 overflow-hidden mb-20 relative">
-             <div className="bg-white p-4 text-center border-b border-gray-300 border-dashed">
-                 <h2 className="text-xl font-extrabold text-gray-800 uppercase tracking-widest">Phiếu Nhập Hàng</h2>
-                 <p className="text-xs text-gray-500 mt-1">{new Date().toLocaleString('vi-VN')}</p>
-                 <div className="mt-3 text-left bg-gray-50 p-2 rounded text-sm border border-gray-200">
-                    <div><span className="font-bold text-gray-600">NCC:</span> {currentSupplier?.name}</div>
-                    <div><span className="font-bold text-gray-600">SĐT:</span> {currentSupplier?.phone}</div>
-                 </div>
-             </div>
-
-             <div className="p-2">
-                {ticketItems.map((item, idx) => (
-                    <div key={idx} className="mb-4 border border-gray-200 rounded-md overflow-hidden text-sm">
-                        <div className="bg-gray-100 px-3 py-2 font-bold text-gray-800 flex justify-between">
-                            <span>{idx + 1}. {item.pName}</span>
-                            <button onClick={() => handleRemoveTicketItem(idx)} className="text-red-500 text-xs font-normal underline">Xóa</button>
-                        </div>
-                        <div className="p-3 grid grid-cols-2 gap-y-1 gap-x-4 text-gray-600">
-                            <div>Tổng cân: <span className="font-bold text-gray-800">{item.gross} kg</span></div>
-                            <div>Trừ bì: <span className="font-bold text-red-600">-{item.tare} kg</span></div>
-                            <div className="col-span-2 border-b border-gray-100 my-1"></div>
-                            <div>Thực nhập: <span className="font-bold text-blue-600">{item.kg} kg</span></div>
-                            <div>Số lượng: <span className="font-bold text-blue-600">{item.con} con</span></div>
-                            <div className="col-span-2 text-xs italic text-gray-400 mt-1">Chi tiết: {item.details}</div>
-                            <div className="col-span-2 border-t border-gray-200 mt-2 pt-2 flex justify-between items-center">
-                                <span>Đơn giá: {formatCurrency(item.price)}</span>
-                                <span className="text-lg font-bold text-gray-800">{formatCurrency(item.total)}</span>
-                            </div>
-                        </div>
-                    </div>
-                ))}
-             </div>
-
-             <div className="bg-gray-800 text-white p-4">
-                 <div className="flex justify-between items-center text-sm mb-1">
-                     <span className="text-gray-300">Tổng bì (lồng):</span>
-                     <span>{ticketItems.reduce((a, b) => a + b.tare, 0).toFixed(2)} kg</span>
-                 </div>
-                 <div className="flex justify-between items-center text-sm mb-3">
-                     <span className="text-gray-300">Tổng thực nhập:</span>
-                     <span>{ticketItems.reduce((a, b) => a + b.kg, 0).toFixed(2)} kg</span>
-                 </div>
-                 <div className="border-t border-gray-600 pt-3 flex justify-between items-center">
-                     <span className="font-bold text-lg uppercase">Tổng Tiền:</span>
-                     <span className="text-2xl font-bold text-yellow-400">
-                        {formatCurrency(ticketItems.reduce((a, b) => a + b.total, 0))}
-                     </span>
-                 </div>
-                 <Button onClick={handleImport} className="w-full mt-4 bg-yellow-500 hover:bg-yellow-600 text-black font-bold border-none">LƯU & KẾT THÚC</Button>
-             </div>
-             
-             <div className="absolute top-full left-0 right-0 h-4 bg-transparent" style={{background: 'radial-gradient(circle, transparent 50%, white 50%)', backgroundSize: '10px 10px'}}></div>
+        <div className="bg-white rounded-none shadow-lg border border-gray-300 overflow-hidden mb-20 relative">
+          <div className="bg-white p-4 text-center border-b border-gray-300 border-dashed">
+            <h2 className="text-xl font-extrabold text-gray-800 uppercase tracking-widest">Phiếu Nhập Hàng</h2>
+            <p className="text-xs text-gray-500 mt-1">{new Date().toLocaleString('vi-VN')}</p>
+            <div className="mt-3 text-left bg-gray-50 p-2 rounded text-sm border border-gray-200">
+              <div><span className="font-bold text-gray-600">NCC:</span> {currentSupplier?.name}</div>
+              <div><span className="font-bold text-gray-600">SĐT:</span> {currentSupplier?.phone}</div>
+            </div>
           </div>
+
+          <div className="p-2">
+            {ticketItems.map((item, idx) => (
+              <div key={idx} className="mb-4 border border-gray-200 rounded-md overflow-hidden text-sm">
+                <div className="bg-gray-100 px-3 py-2 font-bold text-gray-800 flex justify-between">
+                  <span>{idx + 1}. {item.pName}</span>
+                  <button onClick={() => handleRemoveTicketItem(idx)} className="text-red-500 text-xs font-normal underline">Xóa</button>
+                </div>
+                <div className="p-3 grid grid-cols-2 gap-y-1 gap-x-4 text-gray-600">
+                  <div>Tổng cân: <span className="font-bold text-gray-800">{item.gross.toFixed(2)} kg</span></div>
+                  <div>Trừ bì: <span className="font-bold text-red-600">-{item.tare.toFixed(2)} kg</span></div>
+                  <div className="col-span-2 border-b border-gray-100 my-1"></div>
+                  <div>Thực nhập: <span className="font-bold text-blue-600">{item.kg.toFixed(2)} kg</span></div>
+                  <div>Số lượng: <span className="font-bold text-blue-600">{item.con} con</span></div>
+                  <div className="col-span-2 text-xs italic text-gray-400 mt-1">Chi tiết: {item.details}</div>
+                  <div className="col-span-2 border-t border-gray-200 mt-2 pt-2 flex justify-between items-center">
+                    <span>Đơn giá: {(item.price / 1000).toLocaleString('vi-VN')} nghìn VND/kg</span>
+                    <span className="text-lg font-bold text-gray-800">{formatCurrency(item.total)}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="bg-gray-800 text-white p-4">
+            <div className="flex justify-between items-center text-sm mb-1">
+              <span className="text-gray-300">Tổng bì (lồng):</span>
+              <span>{ticketItems.reduce((a, b) => a + b.tare, 0).toFixed(2)} kg</span>
+            </div>
+            <div className="flex justify-between items-center text-sm mb-3">
+              <span className="text-gray-300">Tổng thực nhập:</span>
+              <span>{ticketItems.reduce((a, b) => a + b.kg, 0).toFixed(2)} kg</span>
+            </div>
+            <div className="border-t border-gray-600 pt-3 flex justify-between items-center">
+              <span className="font-bold text-lg uppercase">Tổng Tiền:</span>
+              <span className="text-2xl font-bold text-yellow-400">
+                {formatCurrency(ticketItems.reduce((a, b) => a + b.total, 0))}
+              </span>
+            </div>
+            <Button onClick={handleImport} className="w-full mt-4 bg-yellow-500 hover:bg-yellow-600 text-black font-bold border-none">LƯU & KẾT THÚC</Button>
+          </div>
+
+          <div className="absolute top-full left-0 right-0 h-4 bg-transparent" style={{background: 'radial-gradient(circle, transparent 50%, white 50%)', backgroundSize: '10px 10px'}}></div>
+        </div>
       )}
 
-      {/* Modals (Giữ nguyên) */}
       <Modal isOpen={isSupModalOpen} onClose={() => setIsSupModalOpen(false)} title="Thêm Nhà Cung Cấp">
-         <div className="space-y-4">
-            <Input label="Tên trại/người bán" value={newSupName} onChange={(e:any) => setNewSupName(e.target.value)} />
-            <Input label="Số điện thoại" value={newSupPhone} onChange={(e:any) => setNewSupPhone(e.target.value)} />
-            <Button className="w-full" onClick={handleAddSupplier}>Lưu</Button>
-         </div>
+        <div className="space-y-4">
+          <Input label="Tên trại/người bán" value={newSupName} onChange={(e:any) => setNewSupName(e.target.value)} />
+          <Input label="Số điện thoại" value={newSupPhone} onChange={(e:any) => setNewSupPhone(e.target.value)} />
+          <Button className="w-full" onClick={handleAddSupplier}>Lưu</Button>
+        </div>
       </Modal>
 
       <Modal isOpen={isProdModalOpen} onClose={() => setIsProdModalOpen(false)} title={editingProduct ? "Sửa Loại Gà" : "Thêm Loại Gà"}>
-         <div className="space-y-4">
-            <Input label="Tên loại gà" value={prodName} onChange={(e:any) => setProdName(e.target.value)} placeholder="VD: Gà Ri..." />
-            <Input label="Giá bán mặc định" value={prodPrice} onChange={(e:any) => setProdPrice(e.target.value)} type="number" />
-            <Button className="w-full" onClick={handleSaveProduct}>Lưu Thông Tin</Button>
-         </div>
+        <div className="space-y-4">
+          <Input label="Tên loại gà" value={prodName} onChange={(e:any) => setProdName(e.target.value)} placeholder="VD: Gà Ri..." />
+          <Input label="Giá bán mặc định (nghìn VND/kg)" value={prodPrice} onChange={(e:any) => setProdPrice(e.target.value)} type="number" />
+          <Button className="w-full" onClick={handleSaveProduct}>Lưu Thông Tin</Button>
+        </div>
       </Modal>
     </div>
-  )
+  );
 }
 
 // --- CASHBOOK PAGE ---

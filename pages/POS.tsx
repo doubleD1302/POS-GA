@@ -87,7 +87,7 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
   };
 
   const openManualEntry = () => {
-    setActiveProduct({ id: 'MANUAL', name: 'Hàng ngoài', defaultPrice: 0 }); // Dummy product
+    setActiveProduct({ id: 'MANUAL', name: 'Hàng ngoài', priceMale: 0, priceFemale: 0, costMale: 0, costFemale: 0 }); // Dummy product
     setIsManualItem(true);
     setManualName('');
     setPrice('');
@@ -229,7 +229,7 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
                             className={`flex flex-col items-center justify-center p-3 border rounded-xl shadow-sm transition-all h-28 relative ${isOutOfStock ? 'bg-gray-100 border-gray-200 opacity-60 cursor-not-allowed' : 'bg-white border-brand-100 active:bg-brand-50 active:border-brand-300'}`}
                         >
                             <span className="font-bold text-gray-800 text-sm text-center leading-tight mb-1">{p.name}</span>
-                            <span className="text-xs text-brand-600 font-bold">{formatCurrency(p.defaultPrice)}</span>
+                            <span className="text-xs text-brand-600 font-bold">{formatCurrency(p.priceMale)}</span>
                             
                             <div className="mt-2 text-[10px] text-gray-500 bg-gray-50 px-2 py-0.5 rounded-full border border-gray-100">
                                 {isOutOfStock ? (
