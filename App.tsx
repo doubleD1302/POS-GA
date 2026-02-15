@@ -129,7 +129,6 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
   }[]>([]);
 
   const [currentPid, setCurrentPid] = useState('');
-  const [weightList, setWeightList] = useState<{w: number, t: number, c: number}[]>([]);
   const [currentWeightInput, setCurrentWeightInput] = useState('');
   const [currentTareInput, setCurrentTareInput] = useState('');
   const [currentCountInput, setCurrentCountInput] = useState('');
@@ -204,34 +203,10 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
     if (supplierId || currentPid) saveLastDefaults();
   }, [supplierId, currentPid, gender, importMode, priceMale, priceFemale]);
 
-  const totalGrossWeight = weightList.reduce((a, b) => a + b.w, 0);
-  const totalTare = weightList.reduce((a, b) => a + (b.t || 0), 0);
-  const totalCon = weightList.reduce((a, b) => a + (b.c || 0), 0);
-  const netWeight = Math.max(0, totalGrossWeight - totalTare);
-
-  const handleAddWeight = () => {
-    const w = parseFloat(currentWeightInput);
-    const t = parseFloat(currentTareInput) || 0;
-    const c = parseInt(currentCountInput) || 0;
-
-    if (isNaN(w) || w <= 0) {
-      alert("Vui lòng nhập số cân!");
-      weightInputRef.current?.focus();
-      return;
-    }
-
-    setWeightList([...weightList, { w, t, c }]);
-    setCurrentWeightInput('');
-    setCurrentTareInput('');
-    setCurrentCountInput('');
-    weightInputRef.current?.focus();
-  };
-
-  const handleRemoveWeight = (index: number) => {
-    const next = [...weightList];
-    next.splice(index, 1);
-    setWeightList(next);
-  };
+  const detailGrossWeight = parseFloat(currentWeightInput) || 0;
+  const detailTare = parseFloat(currentTareInput) || 0;
+  const detailCon = parseInt(currentCountInput) || 0;
+  const detailNetWeight = Math.max(0, detailGrossWeight - detailTare);
 
   const handleAddItemToTicket = () => {
     if (!currentPid) return alert("Chưa chọn loại gà!");
@@ -248,13 +223,17 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
     let detailsStr = '';
 
     if (importMode === 'DETAIL') {
-      if (weightList.length === 0) return alert("Chưa nhập mã cân nào!");
-      if (netWeight <= 0) return alert("Khối lượng thực bằng 0!");
-      itemKg = netWeight;
-      itemCon = totalCon;
-      itemGross = totalGrossWeight;
-      itemTare = totalTare;
-      detailsStr = weightList.map(i => `${i.w}${i.t > 0 ? `(-${i.t}b)` : ''}`).join(' + ');
+      if (detailGrossWeight <= 0) {
+        alert("Vui lòng nhập tổng kg!");
+        weightInputRef.current?.focus();
+        return;
+      }
+      if (detailNetWeight <= 0) return alert("Khối lượng thực bằng 0!");
+      itemKg = detailNetWeight;
+      itemCon = detailCon;
+      itemGross = detailGrossWeight;
+      itemTare = detailTare;
+      detailsStr = `${detailGrossWeight}${detailTare > 0 ? `(-${detailTare}b)` : ''}`;
     } else {
       itemKg = parseFloat(quickNetInput);
       itemCon = parseInt(quickConInput) || 0;
@@ -299,7 +278,6 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
       setTicketItems([...ticketItems, newItem]);
     }
 
-    setWeightList([]);
     setCurrentWeightInput('');
     setCurrentTareInput('');
     setCurrentCountInput('');
@@ -477,35 +455,22 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
               </div>
               <div className="flex-1">
                 <label className="text-[10px] text-gray-500 font-bold ml-1">CON</label>
-                <input type="number" placeholder="0" className="w-full px-2 py-2 text-lg font-bold text-center text-gray-800 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none" value={currentCountInput} onChange={e => setCurrentCountInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleAddWeight(); }} />
+                <input type="number" placeholder="0" className="w-full px-2 py-2 text-lg font-bold text-center text-gray-800 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none" value={currentCountInput} onChange={e => setCurrentCountInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleAddItemToTicket(); }} />
               </div>
-              <Button onClick={handleAddWeight} className="h-[46px] w-12 flex items-center justify-center">↵</Button>
             </div>
-
-            {weightList.length > 0 && (
-              <div className="flex flex-wrap gap-2 mb-4 p-2 bg-gray-50 rounded-lg border border-gray-100 max-h-32 overflow-y-auto">
-                {weightList.map((item, i) => (
-                  <span key={i} className="inline-flex items-center px-2 py-1 rounded-md text-sm font-medium bg-white border border-gray-200 shadow-sm text-gray-700">
-                    {item.w} <span className="text-red-400 text-xs mx-1">-{item.t}bì</span>
-                    <span className="text-gray-400 text-xs">({item.c}c)</span>
-                    <button onClick={() => handleRemoveWeight(i)} className="ml-1 text-red-500 font-bold">×</button>
-                  </span>
-                ))}
-              </div>
-            )}
 
             <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-2">
               <div className="flex justify-between items-center text-sm">
                 <span className="text-gray-500">Tổng cân (Gross):</span>
-                <span className="font-bold text-gray-800">{totalGrossWeight.toFixed(2)} kg</span>
+                <span className="font-bold text-gray-800">{detailGrossWeight.toFixed(2)} kg</span>
               </div>
               <div className="flex justify-between items-center text-sm">
                 <span className="text-gray-500">Tổng trừ bì:</span>
-                <span className="font-bold text-red-500">-{totalTare.toFixed(2)} kg</span>
+                <span className="font-bold text-red-500">-{detailTare.toFixed(2)} kg</span>
               </div>
               <div className="border-t border-gray-300 pt-2 flex justify-between items-center">
                 <span className="font-bold text-brand-700 text-lg">Thực Nhập (Net):</span>
-                <span className="text-2xl font-bold text-brand-600">{netWeight.toFixed(2)} kg</span>
+                <span className="text-2xl font-bold text-brand-600">{detailNetWeight.toFixed(2)} kg</span>
               </div>
             </div>
           </>
@@ -516,7 +481,7 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
           <div className="flex flex-col">
             <label className="text-sm font-bold text-gray-700 mb-1">Số con</label>
             <div className="w-full px-3 py-2 bg-gray-100 border border-gray-200 rounded-lg text-gray-800 font-bold">
-              {importMode === 'DETAIL' ? totalCon : (parseInt(quickConInput) || 0)}
+              {importMode === 'DETAIL' ? detailCon : (parseInt(quickConInput) || 0)}
             </div>
           </div>
         </div>
