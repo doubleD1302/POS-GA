@@ -36,8 +36,10 @@ export interface BankSettings {
 export interface Product {
   id: string;
   name: string; // e.g., Gà ta, Gà ri
-  defaultPrice: number; // Selling price
-  standardCost?: number; // Estimated Import price
+  priceMale: number;    // Giá bán Trống
+  priceFemale: number;  // Giá bán Mái
+  costMale: number;     // Giá nhập Trống
+  costFemale: number;   // Giá nhập Mái
 }
 
 export interface Partner {
@@ -52,6 +54,7 @@ export interface Batch {
   id: string;
   code: string;
   productId: string;
+  gender: Gender;
   supplierId: string;
   supplierName?: string; // Added field
   date: string;
@@ -75,6 +78,7 @@ export interface Batch {
 export interface InvoiceLine {
   productId: string;
   productName: string;
+  gender: Gender;
   qtyCon: number;
   qtyKg: number;
   unit: Unit;
@@ -128,3 +132,5 @@ export interface PreOrder {
   note?: string;
   status: 'PENDING' | 'DONE';
 }
+
+export type Gender = 'MALE' | 'FEMALE';

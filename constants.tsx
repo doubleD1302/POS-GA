@@ -12,11 +12,17 @@ export const ICONS = {
 };
 
 export const formatCurrency = (amount: number) => {
-  return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
+  const safeAmount = Number(amount) || 0;
+  return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(safeAmount);
 };
 
 export const formatDate = (dateString: string) => {
   if (!dateString) return '';
-  const date = new Date(dateString);
-  return date.toLocaleDateString('vi-VN');
+  try {
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return dateString; 
+    return date.toLocaleDateString('vi-VN');
+  } catch (e) {
+    return dateString;
+  }
 };
