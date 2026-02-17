@@ -1312,6 +1312,8 @@ function PartnersPage() {
   const [partners, setPartners] = useState<Partner[]>([]);
   const [debtFilter, setDebtFilter] = useState<'ALL' | 'HAS_DEBT' | 'NO_DEBT'>('ALL');
   const [nameFilter, setNameFilter] = useState<'ALL' | 'A_Z' | 'Z_A'>('ALL');
+  const [isDebtMenuOpen, setIsDebtMenuOpen] = useState(false);
+  const [isNameMenuOpen, setIsNameMenuOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   
   // Modal Add/Edit
@@ -1361,6 +1363,9 @@ function PartnersPage() {
 
     setPartners(list);
   }
+
+  const debtFilterLabel = debtFilter === 'HAS_DEBT' ? 'Có nợ' : debtFilter === 'NO_DEBT' ? 'Hết nợ' : 'Mọi công nợ';
+  const nameFilterLabel = nameFilter === 'A_Z' ? 'Tên A → Z' : nameFilter === 'Z_A' ? 'Tên Z → A' : 'Mặc định';
 
   // --- Logic Detail & Pay ---
   const handleOpenDetail = (p: Partner) => {
@@ -1461,18 +1466,40 @@ function PartnersPage() {
         className="mb-4"
        />
 
-       <div className="mb-2 text-xs font-bold text-gray-500 uppercase">Lọc theo nợ</div>
-       <div className="flex gap-2 mb-4 overflow-x-auto no-scrollbar">
-         <button onClick={() => setDebtFilter('ALL')} className={`px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${debtFilter === 'ALL' ? 'bg-gray-800 text-white' : 'bg-gray-200 text-gray-700'}`}>Mọi công nợ</button>
-         <button onClick={() => setDebtFilter('HAS_DEBT')} className={`px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${debtFilter === 'HAS_DEBT' ? 'bg-orange-500 text-white' : 'bg-gray-200 text-gray-700'}`}>Có nợ</button>
-         <button onClick={() => setDebtFilter('NO_DEBT')} className={`px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${debtFilter === 'NO_DEBT' ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700'}`}>Hết nợ</button>
-       </div>
+       <div className="flex gap-2 mb-4">
+         <div className="relative flex-1">
+           <button
+             onClick={() => { setIsDebtMenuOpen(prev => !prev); setIsNameMenuOpen(false); }}
+             className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm font-semibold text-gray-700 flex items-center justify-between"
+           >
+             <span>Lọc theo nợ: {debtFilterLabel}</span>
+             <span className="text-xs">▾</span>
+           </button>
+           {isDebtMenuOpen && (
+             <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg p-1">
+               <button onClick={() => { setDebtFilter('ALL'); setIsDebtMenuOpen(false); }} className={`w-full text-left px-3 py-2 rounded text-sm ${debtFilter === 'ALL' ? 'bg-gray-100 text-gray-900 font-bold' : 'text-gray-700 hover:bg-gray-50'}`}>Mọi công nợ</button>
+               <button onClick={() => { setDebtFilter('HAS_DEBT'); setIsDebtMenuOpen(false); }} className={`w-full text-left px-3 py-2 rounded text-sm ${debtFilter === 'HAS_DEBT' ? 'bg-orange-50 text-orange-700 font-bold' : 'text-gray-700 hover:bg-gray-50'}`}>Có nợ</button>
+               <button onClick={() => { setDebtFilter('NO_DEBT'); setIsDebtMenuOpen(false); }} className={`w-full text-left px-3 py-2 rounded text-sm ${debtFilter === 'NO_DEBT' ? 'bg-green-50 text-green-700 font-bold' : 'text-gray-700 hover:bg-gray-50'}`}>Hết nợ</button>
+             </div>
+           )}
+         </div>
 
-       <div className="mb-2 text-xs font-bold text-gray-500 uppercase">Lọc theo tên</div>
-       <div className="flex gap-2 mb-4 overflow-x-auto no-scrollbar">
-         <button onClick={() => setNameFilter('ALL')} className={`px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${nameFilter === 'ALL' ? 'bg-gray-800 text-white' : 'bg-gray-200 text-gray-700'}`}>Mặc định</button>
-         <button onClick={() => setNameFilter('A_Z')} className={`px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${nameFilter === 'A_Z' ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-700'}`}>Tên A → Z</button>
-         <button onClick={() => setNameFilter('Z_A')} className={`px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${nameFilter === 'Z_A' ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-700'}`}>Tên Z → A</button>
+         <div className="relative flex-1">
+           <button
+             onClick={() => { setIsNameMenuOpen(prev => !prev); setIsDebtMenuOpen(false); }}
+             className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm font-semibold text-gray-700 flex items-center justify-between"
+           >
+             <span>Sắp xếp tên: {nameFilterLabel}</span>
+             <span className="text-xs">▾</span>
+           </button>
+           {isNameMenuOpen && (
+             <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg p-1">
+               <button onClick={() => { setNameFilter('ALL'); setIsNameMenuOpen(false); }} className={`w-full text-left px-3 py-2 rounded text-sm ${nameFilter === 'ALL' ? 'bg-gray-100 text-gray-900 font-bold' : 'text-gray-700 hover:bg-gray-50'}`}>Mặc định</button>
+               <button onClick={() => { setNameFilter('A_Z'); setIsNameMenuOpen(false); }} className={`w-full text-left px-3 py-2 rounded text-sm ${nameFilter === 'A_Z' ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-gray-700 hover:bg-gray-50'}`}>Tên A → Z</button>
+               <button onClick={() => { setNameFilter('Z_A'); setIsNameMenuOpen(false); }} className={`w-full text-left px-3 py-2 rounded text-sm ${nameFilter === 'Z_A' ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-gray-700 hover:bg-gray-50'}`}>Tên Z → A</button>
+             </div>
+           )}
+         </div>
        </div>
 
        {/* Partner List */}
