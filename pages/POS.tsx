@@ -156,7 +156,8 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
         selectedCustomerId,
         new Date().toISOString().split('T')[0],
         cart.map(c => ({...c, paymentMethod})), // Pass payment method if needed per line, but db uses invoice level mostly
-        paidAmount
+        paidAmount,
+        paymentMethod
       );
       alert("Bán hàng thành công!");
       setCart([]);

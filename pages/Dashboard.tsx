@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { db } from '../services/db';
-import { DashboardStats, PartnerType, PreOrder, Unit } from '../types';
+import { DashboardStats, PartnerType, PreOrder, Unit, PaymentMethod } from '../types';
+import { aiService } from '../services/ai';
 import { formatCurrency, ICONS } from '../constants';
 import { StatCard, Button, Card, Input, Select, Modal } from '../components/ui';
 
@@ -26,6 +27,12 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
   const [poTime, setPoTime] = useState('');
   const [poNote, setPoNote] = useState('');
   const [quickCustomerOptions, setQuickCustomerOptions] = useState<{ name: string; phone?: string }[]>([]);
+  const [showDeliveryPayment, setShowDeliveryPayment] = useState(false);
+  const [deliveryPaymentMethod, setDeliveryPaymentMethod] = useState<PaymentMethod>(PaymentMethod.CASH);
+  const [deliveryPaidAmount, setDeliveryPaidAmount] = useState(0);
+  const [aiQuestion, setAiQuestion] = useState('');
+  const [aiAnswer, setAiAnswer] = useState('');
+  const [forecastDays, setForecastDays] = useState<7 | 30>(7);
 
   const customerOptions = db.getPartners(PartnerType.CUSTOMER);
   const normalizeValue = (value: string) => (value || '').trim().toLowerCase();
@@ -48,6 +55,8 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
       .filter(Boolean),
     ...db.getQuickItems()
   ]));
+  const priceSuggestions = aiService.suggestSellingPrices().slice(0, 4);
+  const cashflowForecast = aiService.forecastCashflow(forecastDays);
 
   const refreshStats = () => {
     const data = db.getDashboardStats();
@@ -102,9 +111,14 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
       return;
     }
 
+    const smartCategory = aiService.classifyOtherExpense(otherExpenseNote, otherExpenseCategory);
+    if (smartCategory !== otherExpenseCategory) {
+      setOtherExpenseCategory(smartCategory);
+    }
+
     setIsSavingExpense(true);
     try {
-      await db.createOtherExpense(amount, otherExpenseCategory, otherExpenseNote);
+      await db.createOtherExpense(amount, smartCategory, otherExpenseNote);
       setOtherExpenseAmount('');
       setOtherExpenseNote('');
       refreshStats();
@@ -122,11 +136,17 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
       setPoProduct(order.productNote); setPoCon(order.qtyCon?.toString() || ''); setPoKg(order.qtyKg?.toString() || '');
       setPoPrice(order.unitPrice ? String(order.unitPrice) : '');
       setPoTime(order.deliveryTime); setPoNote(order.note || '');
+      const total = ((Number(order.qtyKg) || 0) > 0 ? (Number(order.qtyKg) || 0) : (Number(order.qtyCon) || 0)) * (Number(order.unitPrice) || 0);
+      setDeliveryPaymentMethod(PaymentMethod.CASH);
+      setDeliveryPaidAmount(total);
     } else {
       setSelectedOrder(null); setPoName(''); setPoPhone(''); setPoProduct(''); setPoCon(''); setPoKg('');
       setPoPrice('');
       const now = new Date(); now.setHours(now.getHours() + 1); now.setMinutes(0); setPoTime(now.toISOString().slice(0, 16)); setPoNote('');
+      setDeliveryPaymentMethod(PaymentMethod.CASH);
+      setDeliveryPaidAmount(0);
     }
+    setShowDeliveryPayment(false);
     setIsOrderModalOpen(true);
   }
 
@@ -213,10 +233,19 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
     const qtyCon = Number(poCon) || 0;
     const qtyKg = Number(poKg) || 0;
     const unitPrice = Number(poPrice) || 0;
+    const orderTotal = (qtyKg > 0 ? qtyKg : qtyCon) * unitPrice;
 
     if (!poName || !poProduct || !poTime) return alert('Vui lòng nhập đủ khách hàng, hàng hoá và thời gian giao.');
     if (qtyCon <= 0 && qtyKg <= 0) return alert('Cần nhập ít nhất Số con hoặc Số kg.');
     if (unitPrice <= 0) return alert('Vui lòng nhập đơn giá hợp lệ để xuất hoá đơn.');
+
+    let paidAmount = Number(deliveryPaidAmount) || 0;
+    if (deliveryPaymentMethod === PaymentMethod.DEBT) {
+      paidAmount = 0;
+    }
+    if (paidAmount < 0 || paidAmount > orderTotal) {
+      return alert('Số tiền khách trả không hợp lệ.');
+    }
 
     let customer = customerOptions.find(c => (poPhone && c.phone === poPhone) || c.name.trim().toLowerCase() === poName.trim().toLowerCase());
     if (!customer) {
@@ -253,7 +282,7 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
       db.saveQuickCustomer(poName, poPhone);
       db.saveQuickItem(poProduct);
       setQuickCustomerOptions(db.getQuickCustomers());
-      await db.createSale(customer.id, poTime.split('T')[0], [saleLine], 0);
+      await db.createSale(customer.id, poTime.split('T')[0], [saleLine], paidAmount, deliveryPaymentMethod);
       db.savePreOrder({
         ...selectedOrder,
         customerName: poName,
@@ -269,14 +298,29 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
       reloadPreOrders();
       refreshStats();
       setIsOrderModalOpen(false);
+      setShowDeliveryPayment(false);
       alert('Đã giao hàng thành công và xuất hoá đơn.');
     } catch (e: any) {
       alert(e.message || 'Không thể xuất hoá đơn giao hàng.');
     }
   }
 
+  const handleAskAI = () => {
+    if (!aiQuestion.trim()) return;
+    setAiAnswer(aiService.answerInternalQuestion(aiQuestion));
+  };
+
   const formatTime = (isoString: string) => { try { const d = new Date(isoString); return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`; } catch (e) { return ''; } }
   const formatDateShort = (isoString: string) => { try { const d = new Date(isoString); return `${d.getDate()}/${d.getMonth() + 1}`; } catch (e) { return ''; } }
+  const draftIssues = aiService.detectInputIssues({
+    customerName: poName,
+    customerPhone: poPhone,
+    unitPrice: Number(poPrice) || 0,
+    qtyKg: Number(poKg) || 0,
+    qtyCon: Number(poCon) || 0,
+    productName: poProduct,
+  });
+  const draftTotal = (Number(poKg) > 0 ? Number(poKg) : Number(poCon)) * (Number(poPrice) || 0);
 
   return (
     <div className="space-y-4 pb-20">
@@ -414,6 +458,59 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
         </div>
       </div>
 
+      <Card title="AI hỗ trợ kinh doanh">
+        <div className="space-y-3">
+          <div>
+            <div className="text-xs font-bold uppercase text-gray-500 mb-2">Gợi ý giá bán</div>
+            <div className="space-y-2">
+              {priceSuggestions.map(s => (
+                <div key={s.productId} className="bg-gray-50 border border-gray-100 rounded-lg p-2">
+                  <div className="text-sm font-bold text-gray-800">{s.productName}</div>
+                  <div className="text-xs text-gray-500">Đề xuất: <span className="font-bold text-brand-600">{formatCurrency(s.suggestedPrice)}</span> · Giá vốn: {formatCurrency(s.costRef)} · Bán TB: {formatCurrency(s.avgSalePrice)}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <div className="text-xs font-bold uppercase text-gray-500 mb-2">Phát hiện sai sót nhập liệu</div>
+            {draftIssues.length === 0 ? (
+              <div className="text-xs text-green-700 bg-green-50 border border-green-100 rounded px-2 py-1">Không phát hiện bất thường rõ ràng.</div>
+            ) : (
+              <div className="space-y-1">
+                {draftIssues.map((issue, idx) => (
+                  <div key={idx} className={`text-xs rounded px-2 py-1 border ${issue.level === 'error' ? 'bg-red-50 text-red-700 border-red-100' : 'bg-yellow-50 text-yellow-700 border-yellow-100'}`}>{issue.message}</div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <div className="text-xs font-bold uppercase text-gray-500 mb-2">Trợ lý chat nội bộ</div>
+            <div className="flex gap-2">
+              <Input className="flex-1" placeholder="Ví dụ: Hôm nay lãi/lỗ vì sao?" value={aiQuestion} onChange={(e: any) => setAiQuestion(e.target.value)} />
+              <Button onClick={handleAskAI}>Hỏi</Button>
+            </div>
+            {aiAnswer && <div className="mt-2 text-sm bg-blue-50 border border-blue-100 text-blue-800 rounded-lg p-2">{aiAnswer}</div>}
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-xs font-bold uppercase text-gray-500">Dự báo dòng tiền</div>
+              <div className="flex gap-1">
+                <button onClick={() => setForecastDays(7)} className={`text-xs px-2 py-1 rounded border ${forecastDays === 7 ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-gray-600 border-gray-300'}`}>7 ngày</button>
+                <button onClick={() => setForecastDays(30)} className={`text-xs px-2 py-1 rounded border ${forecastDays === 30 ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-gray-600 border-gray-300'}`}>30 ngày</button>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-xs">
+              <div className="bg-green-50 border border-green-100 rounded p-2"><div className="text-gray-500">Thu dự kiến</div><div className="font-bold text-green-700">{formatCurrency(cashflowForecast.expectedIn)}</div></div>
+              <div className="bg-red-50 border border-red-100 rounded p-2"><div className="text-gray-500">Chi dự kiến</div><div className="font-bold text-red-700">{formatCurrency(cashflowForecast.expectedOut)}</div></div>
+              <div className="bg-blue-50 border border-blue-100 rounded p-2"><div className="text-gray-500">Dòng tiền ròng</div><div className={`font-bold ${cashflowForecast.expectedNet >= 0 ? 'text-blue-700' : 'text-orange-700'}`}>{formatCurrency(cashflowForecast.expectedNet)}</div></div>
+            </div>
+          </div>
+        </div>
+      </Card>
+
       <Card title="Phím tắt">
         <div className="grid grid-cols-2 gap-3">
           <Button onClick={() => navigate('pos')} variant="primary" className="flex justify-center items-center gap-2">
@@ -477,6 +574,37 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
             <Input label="Đơn giá" type="number" value={poPrice} onChange={(e: any) => setPoPrice(e.target.value)} placeholder="VND / kg hoặc con" className="mt-2" />
           </div>
           <textarea className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white" value={poNote} onChange={e => setPoNote(e.target.value)} placeholder="Ghi chú..." />
+          {showDeliveryPayment && (
+            <div className="border border-blue-100 bg-blue-50 rounded-lg p-3 space-y-3">
+              <div className="text-xs font-bold text-blue-800 uppercase">Thanh toán giao hàng</div>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setDeliveryPaymentMethod(PaymentMethod.CASH); setDeliveryPaidAmount(draftTotal); }}
+                  className={`py-2 text-xs font-bold rounded border ${deliveryPaymentMethod === PaymentMethod.CASH ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-600 border-gray-300'}`}
+                >Tiền mặt</button>
+                <button
+                  type="button"
+                  onClick={() => { setDeliveryPaymentMethod(PaymentMethod.TRANSFER); setDeliveryPaidAmount(draftTotal); }}
+                  className={`py-2 text-xs font-bold rounded border ${deliveryPaymentMethod === PaymentMethod.TRANSFER ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300'}`}
+                >Chuyển khoản</button>
+                <button
+                  type="button"
+                  onClick={() => { setDeliveryPaymentMethod(PaymentMethod.DEBT); setDeliveryPaidAmount(0); }}
+                  className={`py-2 text-xs font-bold rounded border ${deliveryPaymentMethod === PaymentMethod.DEBT ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-gray-600 border-gray-300'}`}
+                >Ghi nợ</button>
+              </div>
+              <div className="text-xs text-gray-600">Tổng đơn: <span className="font-bold text-brand-600">{formatCurrency(draftTotal)}</span></div>
+              <Input
+                label="Khách trả"
+                type="number"
+                value={deliveryPaidAmount}
+                onChange={(e: any) => setDeliveryPaidAmount(Number(e.target.value))}
+                disabled={deliveryPaymentMethod === PaymentMethod.DEBT}
+              />
+              <Button variant="success" className="w-full" onClick={handleDeliverSuccess}>Xác nhận giao hàng & xuất hoá đơn</Button>
+            </div>
+          )}
           <div className="flex gap-2 pt-2">
             {selectedOrder ? (
               <>
@@ -484,7 +612,7 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
                 {selectedOrder.status !== 'PREPARED' && (
                   <Button variant="secondary" className="flex-1" onClick={handleMarkPreparedOrder}>Chuẩn bị xong</Button>
                 )}
-                <Button variant="success" className="flex-1" onClick={handleDeliverSuccess}>Giao hàng thành công</Button>
+                <Button variant="success" className="flex-1" onClick={() => setShowDeliveryPayment(prev => !prev)}>Giao hàng thành công</Button>
                 <Button className="flex-1" onClick={handleSaveOrder}>Lưu Sửa</Button>
               </>
             ) : <Button className="w-full" onClick={handleSaveOrder}>Lưu Đơn Đặt</Button>}

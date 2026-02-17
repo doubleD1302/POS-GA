@@ -484,7 +484,7 @@ class Database {
     return true;
   }
 
-  async createSale(customerId: string, date: string, lines: any[], paidAmount: number) {
+  async createSale(customerId: string, date: string, lines: any[], paidAmount: number, paymentMethod?: PaymentMethod) {
     const partners = this.getPartners();
     const batches = this.load<Batch[]>(BASE_KEYS.BATCHES, []);
     const invoices = this.getInvoices();
@@ -541,17 +541,21 @@ class Database {
     }
 
     const debtAmount = totalAmount - paidAmount;
+    const finalPaymentMethod = paymentMethod || (debtAmount === totalAmount ? PaymentMethod.DEBT : (paidAmount > 0 ? PaymentMethod.CASH : undefined));
     const invoice: Invoice = {
       id: `inv-${Date.now()}`, code, type: 'EXPORT', date, partnerId: customerId, partnerName: customer.name,
       totalAmount, paidAmount, debtAmount, lines: invoiceLines, cogs: totalCOGS,
-      paymentMethod: debtAmount === totalAmount ? PaymentMethod.DEBT : (paidAmount > 0 ? PaymentMethod.CASH : undefined), 
+      paymentMethod: finalPaymentMethod,
     };
 
     this.save(BASE_KEYS.BATCHES, batches);
     this.save(BASE_KEYS.INVOICES, [invoice, ...invoices]);
 
     if (paidAmount > 0) {
-      const txn: CashTransaction = { id: `txn-${Date.now()}`, date: new Date().toISOString(), type: TransactionType.INCOME, amount: paidAmount, description: `Thu bán hàng: ${customer.name}`, refId: invoice.id };
+      const description = finalPaymentMethod === PaymentMethod.TRANSFER
+        ? `Thu chuyển khoản: ${customer.name}`
+        : `Thu bán hàng: ${customer.name}`;
+      const txn: CashTransaction = { id: `txn-${Date.now()}`, date: new Date().toISOString(), type: TransactionType.INCOME, amount: paidAmount, description, refId: invoice.id };
       this.save(BASE_KEYS.CASH, [txn, ...cash]);
     }
 
