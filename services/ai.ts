@@ -115,10 +115,12 @@ const buildBusinessContext = () => {
 
 const getGeminiApiKey = () => {
   const savedKey = db.getGeminiApiKey();
-  const viteKey = (import.meta as any)?.env?.VITE_GEMINI_API_KEY;
-  const rawKey = (import.meta as any)?.env?.GEMINI_API_KEY;
-  const processViteKey = (process as any)?.env?.VITE_GEMINI_API_KEY;
-  const processRawKey = (process as any)?.env?.GEMINI_API_KEY || (process as any)?.env?.API_KEY;
+  const viteEnv = (import.meta as any)?.env || {};
+  const viteKey = viteEnv.VITE_GEMINI_API_KEY;
+  const rawKey = viteEnv.GEMINI_API_KEY;
+  const processEnv = ((globalThis as any)?.process?.env) || {};
+  const processViteKey = processEnv.VITE_GEMINI_API_KEY;
+  const processRawKey = processEnv.GEMINI_API_KEY || processEnv.API_KEY;
   return (savedKey || viteKey || rawKey || processViteKey || processRawKey || '').trim();
 };
 
