@@ -30,8 +30,11 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
   const [showDeliveryPayment, setShowDeliveryPayment] = useState(false);
   const [deliveryPaymentMethod, setDeliveryPaymentMethod] = useState<PaymentMethod>(PaymentMethod.CASH);
   const [deliveryPaidAmount, setDeliveryPaidAmount] = useState(0);
+  const [isAiChatOpen, setIsAiChatOpen] = useState(false);
   const [aiQuestion, setAiQuestion] = useState('');
-  const [aiAnswer, setAiAnswer] = useState('');
+  const [aiMessages, setAiMessages] = useState<Array<{ role: 'user' | 'ai'; text: string }>>([
+    { role: 'ai', text: 'Xin chào! Mình có thể gợi ý giá bán, phát hiện nhập liệu bất thường và trả lời nhanh theo dữ liệu nội bộ.' }
+  ]);
   const [forecastDays, setForecastDays] = useState<7 | 30>(7);
 
   const customerOptions = db.getPartners(PartnerType.CUSTOMER);
@@ -305,9 +308,40 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
     }
   }
 
+  const pushAiMessage = (question: string, answer: string) => {
+    setAiMessages(prev => [...prev, { role: 'user', text: question }, { role: 'ai', text: answer }]);
+  };
+
   const handleAskAI = () => {
     if (!aiQuestion.trim()) return;
-    setAiAnswer(aiService.answerInternalQuestion(aiQuestion));
+    const question = aiQuestion.trim();
+    const answer = aiService.answerInternalQuestion(question);
+    pushAiMessage(question, answer);
+    setAiQuestion('');
+  };
+
+  const handleAiShortcut = (shortcut: 'PRICE' | 'ANOMALY' | 'FORECAST_7' | 'FORECAST_30') => {
+    if (shortcut === 'PRICE') {
+      const top = priceSuggestions.slice(0, 3);
+      const answer = top.length === 0
+        ? 'Hiện chưa đủ dữ liệu để gợi ý giá bán.'
+        : top.map((s, idx) => `${idx + 1}. ${s.productName}: ${formatCurrency(s.suggestedPrice)} (${s.reason})`).join('\n');
+      pushAiMessage('Gợi ý giá bán hôm nay', answer);
+      return;
+    }
+
+    if (shortcut === 'ANOMALY') {
+      const answer = draftIssues.length === 0
+        ? 'Không phát hiện bất thường rõ ràng ở dữ liệu đơn đang nhập.'
+        : draftIssues.map((issue, idx) => `${idx + 1}. ${issue.message}`).join('\n');
+      pushAiMessage('Kiểm tra bất thường nhập liệu', answer);
+      return;
+    }
+
+    const days = shortcut === 'FORECAST_30' ? 30 : 7;
+    const forecast = aiService.forecastCashflow(days);
+    const answer = `Dự báo ${forecast.days} ngày:\n- Thu: ${formatCurrency(forecast.expectedIn)}\n- Chi: ${formatCurrency(forecast.expectedOut)}\n- Ròng: ${formatCurrency(forecast.expectedNet)}`;
+    pushAiMessage(`Dự báo dòng tiền ${days} ngày`, answer);
   };
 
   const formatTime = (isoString: string) => { try { const d = new Date(isoString); return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`; } catch (e) { return ''; } }
@@ -458,59 +492,6 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
         </div>
       </div>
 
-      <Card title="AI hỗ trợ kinh doanh">
-        <div className="space-y-3">
-          <div>
-            <div className="text-xs font-bold uppercase text-gray-500 mb-2">Gợi ý giá bán</div>
-            <div className="space-y-2">
-              {priceSuggestions.map(s => (
-                <div key={s.productId} className="bg-gray-50 border border-gray-100 rounded-lg p-2">
-                  <div className="text-sm font-bold text-gray-800">{s.productName}</div>
-                  <div className="text-xs text-gray-500">Đề xuất: <span className="font-bold text-brand-600">{formatCurrency(s.suggestedPrice)}</span> · Giá vốn: {formatCurrency(s.costRef)} · Bán TB: {formatCurrency(s.avgSalePrice)}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <div className="text-xs font-bold uppercase text-gray-500 mb-2">Phát hiện sai sót nhập liệu</div>
-            {draftIssues.length === 0 ? (
-              <div className="text-xs text-green-700 bg-green-50 border border-green-100 rounded px-2 py-1">Không phát hiện bất thường rõ ràng.</div>
-            ) : (
-              <div className="space-y-1">
-                {draftIssues.map((issue, idx) => (
-                  <div key={idx} className={`text-xs rounded px-2 py-1 border ${issue.level === 'error' ? 'bg-red-50 text-red-700 border-red-100' : 'bg-yellow-50 text-yellow-700 border-yellow-100'}`}>{issue.message}</div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div>
-            <div className="text-xs font-bold uppercase text-gray-500 mb-2">Trợ lý chat nội bộ</div>
-            <div className="flex gap-2">
-              <Input className="flex-1" placeholder="Ví dụ: Hôm nay lãi/lỗ vì sao?" value={aiQuestion} onChange={(e: any) => setAiQuestion(e.target.value)} />
-              <Button onClick={handleAskAI}>Hỏi</Button>
-            </div>
-            {aiAnswer && <div className="mt-2 text-sm bg-blue-50 border border-blue-100 text-blue-800 rounded-lg p-2">{aiAnswer}</div>}
-          </div>
-
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <div className="text-xs font-bold uppercase text-gray-500">Dự báo dòng tiền</div>
-              <div className="flex gap-1">
-                <button onClick={() => setForecastDays(7)} className={`text-xs px-2 py-1 rounded border ${forecastDays === 7 ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-gray-600 border-gray-300'}`}>7 ngày</button>
-                <button onClick={() => setForecastDays(30)} className={`text-xs px-2 py-1 rounded border ${forecastDays === 30 ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-gray-600 border-gray-300'}`}>30 ngày</button>
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-2 text-xs">
-              <div className="bg-green-50 border border-green-100 rounded p-2"><div className="text-gray-500">Thu dự kiến</div><div className="font-bold text-green-700">{formatCurrency(cashflowForecast.expectedIn)}</div></div>
-              <div className="bg-red-50 border border-red-100 rounded p-2"><div className="text-gray-500">Chi dự kiến</div><div className="font-bold text-red-700">{formatCurrency(cashflowForecast.expectedOut)}</div></div>
-              <div className="bg-blue-50 border border-blue-100 rounded p-2"><div className="text-gray-500">Dòng tiền ròng</div><div className={`font-bold ${cashflowForecast.expectedNet >= 0 ? 'text-blue-700' : 'text-orange-700'}`}>{formatCurrency(cashflowForecast.expectedNet)}</div></div>
-            </div>
-          </div>
-        </div>
-      </Card>
-
       <Card title="Phím tắt">
         <div className="grid grid-cols-2 gap-3">
           <Button onClick={() => navigate('pos')} variant="primary" className="flex justify-center items-center gap-2">
@@ -619,6 +600,54 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
           </div>
         </div>
       </Modal>
+
+      <div className="fixed right-4 bottom-24 z-40">
+        {isAiChatOpen && (
+          <div className="mb-3 w-[320px] max-w-[calc(100vw-2rem)] bg-white border border-gray-200 rounded-2xl shadow-xl overflow-hidden">
+            <div className="px-3 py-2 bg-brand-600 text-white flex items-center justify-between">
+              <div className="text-sm font-bold">AI hỗ trợ</div>
+              <button onClick={() => setIsAiChatOpen(false)} className="text-xs bg-white/20 px-2 py-1 rounded">Đóng</button>
+            </div>
+
+            <div className="p-3 border-b border-gray-100">
+              <div className="text-[11px] uppercase font-bold text-gray-500 mb-2">Lối tắt</div>
+              <div className="flex flex-wrap gap-2">
+                <button onClick={() => handleAiShortcut('PRICE')} className="text-xs px-2 py-1 rounded-full border border-gray-300 bg-gray-50 text-gray-700">Giá bán</button>
+                <button onClick={() => handleAiShortcut('ANOMALY')} className="text-xs px-2 py-1 rounded-full border border-gray-300 bg-gray-50 text-gray-700">Bất thường</button>
+                <button onClick={() => { setForecastDays(7); handleAiShortcut('FORECAST_7'); }} className="text-xs px-2 py-1 rounded-full border border-gray-300 bg-gray-50 text-gray-700">Dự báo 7 ngày</button>
+                <button onClick={() => { setForecastDays(30); handleAiShortcut('FORECAST_30'); }} className="text-xs px-2 py-1 rounded-full border border-gray-300 bg-gray-50 text-gray-700">Dự báo 30 ngày</button>
+              </div>
+              <div className="mt-2 text-[11px] text-gray-500">
+                Thu/Chi {forecastDays} ngày: <span className="font-bold text-green-700">{formatCurrency(cashflowForecast.expectedIn)}</span> / <span className="font-bold text-red-700">{formatCurrency(cashflowForecast.expectedOut)}</span>
+              </div>
+            </div>
+
+            <div className="max-h-56 overflow-y-auto p-3 space-y-2 bg-gray-50">
+              {aiMessages.map((message, idx) => (
+                <div
+                  key={idx}
+                  className={`text-xs rounded-lg px-3 py-2 whitespace-pre-line ${message.role === 'user' ? 'bg-brand-600 text-white ml-8' : 'bg-white border border-gray-200 text-gray-700 mr-8'}`}
+                >
+                  {message.text}
+                </div>
+              ))}
+            </div>
+
+            <div className="p-3 border-t border-gray-100 flex gap-2">
+              <Input className="flex-1" placeholder="Ví dụ: Hôm nay lãi/lỗ vì sao?" value={aiQuestion} onChange={(e: any) => setAiQuestion(e.target.value)} />
+              <Button onClick={handleAskAI}>Gửi</Button>
+            </div>
+          </div>
+        )}
+
+        <button
+          onClick={() => setIsAiChatOpen(prev => !prev)}
+          className="w-14 h-14 rounded-full bg-brand-600 text-white shadow-xl border-4 border-white flex items-center justify-center text-xl"
+          title="Mở AI hỗ trợ"
+        >
+          💬
+        </button>
+      </div>
     </div>
   );
 }
