@@ -114,11 +114,12 @@ const buildBusinessContext = () => {
 };
 
 const getGeminiApiKey = () => {
+  const savedKey = db.getGeminiApiKey();
   const viteKey = (import.meta as any)?.env?.VITE_GEMINI_API_KEY;
   const rawKey = (import.meta as any)?.env?.GEMINI_API_KEY;
   const processViteKey = (process as any)?.env?.VITE_GEMINI_API_KEY;
   const processRawKey = (process as any)?.env?.GEMINI_API_KEY || (process as any)?.env?.API_KEY;
-  return (viteKey || rawKey || processViteKey || processRawKey || '').trim();
+  return (savedKey || viteKey || rawKey || processViteKey || processRawKey || '').trim();
 };
 
 const isTokenOrQuotaError = (status: number, message: string) => {
@@ -154,6 +155,18 @@ const summarizeFallbackReason = (message: string) => {
 export const aiService = {
   getGeminiModels(): GeminiModel[] {
     return [...GEMINI_MODELS];
+  },
+
+  getGeminiApiKeyGuide(): string {
+    return [
+      'Hướng dẫn lấy Gemini API key:',
+      '1) Vào Google AI Studio: https://aistudio.google.com',
+      '2) Đăng nhập tài khoản Google.',
+      '3) Mở mục API keys / Get API key.',
+      '4) Tạo key mới và sao chép chuỗi bắt đầu bằng AIza...',
+      '5) Quay lại app, bấm nút Set API key rồi dán key vào ô chat.',
+      'Lưu ý: Mỗi tài khoản doanh nghiệp trong app sẽ lưu key riêng trên Supabase.'
+    ].join('\n');
   },
 
   async checkGeminiConnection(selectedModel: GeminiModel): Promise<GeminiHealthResult> {

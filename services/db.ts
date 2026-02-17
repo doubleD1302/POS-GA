@@ -29,6 +29,7 @@ const BASE_KEYS = {
   INVOICES: 'invoices',
   CASH: 'cash',
   BANK: 'bank',
+  GEMINI_API_KEY: 'gemini_api_key',
   PREORDERS: 'preorders',
   QUICK_CUSTOMERS: 'quick_customers',
   QUICK_ITEMS: 'quick_items',
@@ -236,6 +237,10 @@ class Database {
     return this.load<BankSettings | null>(BASE_KEYS.BANK, null);
   }
 
+  getGeminiApiKey(): string {
+    return this.load<string>(BASE_KEYS.GEMINI_API_KEY, '');
+  }
+
   getPreOrders(): PreOrder[] {
     return this.load<PreOrder[]>(BASE_KEYS.PREORDERS, []).sort((a, b) => new Date(a.deliveryTime).getTime() - new Date(b.deliveryTime).getTime());
   }
@@ -250,6 +255,10 @@ class Database {
 
   // --- WRITE FUNCTIONS ---
   saveBankSettings(settings: BankSettings) { this.save(BASE_KEYS.BANK, settings); }
+  async saveGeminiApiKey(apiKey: string) {
+    const safeKey = (apiKey || '').trim();
+    await this.save(BASE_KEYS.GEMINI_API_KEY, safeKey);
+  }
   
   saveProduct(product: Product) {
     const products = this.getProducts(); // Lấy bản mới nhất từ cache (đã sync)

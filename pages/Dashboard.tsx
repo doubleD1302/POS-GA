@@ -38,6 +38,7 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
   ]);
   const [isAskingAi, setIsAskingAi] = useState(false);
   const [aiModel, setAiModel] = useState<GeminiModel>('gemini-2.5-flash');
+  const [isAwaitingApiKeyInput, setIsAwaitingApiKeyInput] = useState(false);
   const [forecastDays, setForecastDays] = useState<7 | 30>(7);
 
   const customerOptions = db.getPartners(PartnerType.CUSTOMER);
@@ -317,9 +318,64 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
     setAiMessages(prev => [...prev, { role: 'user', text: question }, { role: 'ai', text: answer }]);
   };
 
+  const handleShowApiKeyGuide = () => {
+    pushAiMessage('Hướng dẫn lấy Gemini API key', aiService.getGeminiApiKeyGuide());
+  };
+
+  const handleStartSetApiKey = () => {
+    setIsAwaitingApiKeyInput(true);
+    setAiMessages(prev => [...prev, {
+      role: 'ai',
+      text: 'Vui lòng nhập Gemini API key mới vào ô chat (chuỗi bắt đầu bằng AIza...). Mình sẽ lưu làm key mặc định cho tài khoản này trên Supabase.'
+    }]);
+  };
+
+  const isLikelyGeminiKey = (value: string) => /^AIza[0-9A-Za-z\-_]{20,}$/.test((value || '').trim());
+
   const handleAskAI = async () => {
     if (!aiQuestion.trim() || isAskingAi) return;
     const question = aiQuestion.trim();
+
+    if (isAwaitingApiKeyInput) {
+      setAiQuestion('');
+      setAiMessages(prev => [...prev, { role: 'user', text: 'Đã gửi API key mới' }]);
+
+      if (!isLikelyGeminiKey(question)) {
+        setAiMessages(prev => [...prev, {
+          role: 'ai',
+          text: 'Key chưa đúng định dạng Gemini (cần bắt đầu bằng AIza...). Vui lòng nhập lại.'
+        }]);
+        return;
+      }
+
+      setIsAskingAi(true);
+      try {
+        await db.saveGeminiApiKey(question);
+        setIsAwaitingApiKeyInput(false);
+        setAiMessages(prev => [...prev, {
+          role: 'ai',
+          text: '✅ Đã lưu API key mặc định cho tài khoản này trên Supabase.'
+        }]);
+
+        const check = await aiService.checkGeminiConnection(aiModel);
+        setAiMessages(prev => [...prev, {
+          role: 'ai',
+          text: `${check.ok ? '✅' : '❌'} ${check.message}`,
+        }]);
+        if (check.ok && check.model !== aiModel) {
+          setAiModel(check.model);
+        }
+      } catch (_e: any) {
+        setAiMessages(prev => [...prev, {
+          role: 'ai',
+          text: '❌ Không thể lưu API key lúc này. Vui lòng kiểm tra kết nối và thử lại.'
+        }]);
+      } finally {
+        setIsAskingAi(false);
+      }
+      return;
+    }
+
     const history = [...aiMessages, { role: 'user' as const, text: question }];
     setAiMessages(prev => [...prev, { role: 'user', text: question }]);
     setAiQuestion('');
@@ -756,6 +812,8 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
                 <button onClick={() => handleAiShortcut('ANOMALY')} className="text-xs px-2 py-1 rounded-full border border-gray-300 bg-gray-50 text-gray-700">Bất thường</button>
                 <button onClick={() => { setForecastDays(7); handleAiShortcut('FORECAST_7'); }} className="text-xs px-2 py-1 rounded-full border border-gray-300 bg-gray-50 text-gray-700">Dự báo 7 ngày</button>
                 <button onClick={() => { setForecastDays(30); handleAiShortcut('FORECAST_30'); }} className="text-xs px-2 py-1 rounded-full border border-gray-300 bg-gray-50 text-gray-700">Dự báo 30 ngày</button>
+                <button onClick={handleShowApiKeyGuide} className="text-xs px-2 py-1 rounded-full border border-indigo-300 bg-indigo-50 text-indigo-700">Hướng dẫn lấy API key</button>
+                <button onClick={handleStartSetApiKey} className="text-xs px-2 py-1 rounded-full border border-emerald-300 bg-emerald-50 text-emerald-700">Set API key</button>
                 <button onClick={handleCheckGemini} className="text-xs px-2 py-1 rounded-full border border-blue-300 bg-blue-50 text-blue-700">Kiểm tra kết nối Gemini</button>
               </div>
               <div className="mt-2 text-[11px] text-gray-500">
