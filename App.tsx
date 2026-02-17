@@ -6,7 +6,7 @@ import Inventory from './pages/Inventory';
 import { ICONS, formatCurrency, formatDate} from './constants';
 import { db } from './services/db';
 import { Button, Input, Select, Card, Modal } from './components/ui';
-import { Partner, PartnerType, BankSettings, Invoice, CashTransaction, PreOrder, PaymentMethod, Product, Gender } from './types';
+import { Partner, PartnerType, BankSettings, Invoice, CashTransaction, PreOrder, PaymentMethod, Product, Gender, SupplierCategory } from './types';
 
 // --- LOGIN COMPONENT ---
 // --- LOGIN COMPONENT (ĐÃ SỬA ĐỂ KÍCH HOẠT ĐỒNG BỘ) ---
@@ -128,15 +128,19 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
   }[]>([]);
 
   const [currentPid, setCurrentPid] = useState('');
+  const [tareMode, setTareMode] = useState<'BY_CAGE' | 'BY_WEIGHT'>('BY_CAGE');
   const [currentWeightInput, setCurrentWeightInput] = useState('');
   const [currentTareInput, setCurrentTareInput] = useState('');
+  const [currentCageInput, setCurrentCageInput] = useState('');
   const [currentCountInput, setCurrentCountInput] = useState('');
   const [priceMale, setPriceMale] = useState('');
   const [priceFemale, setPriceFemale] = useState('');
+  const [lastTicketKey, setLastTicketKey] = useState<string | null>(null);
 
   const [isSupModalOpen, setIsSupModalOpen] = useState(false);
   const [newSupName, setNewSupName] = useState('');
   const [newSupPhone, setNewSupPhone] = useState('');
+  const [newSupCategory, setNewSupCategory] = useState<SupplierCategory>('FARM');
   const [isProdModalOpen, setIsProdModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [prodName, setProdName] = useState('');
@@ -157,13 +161,14 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
     return list;
   };
 
-  const saveLastDefaults = (override?: Partial<{ supplierId: string; productId: string; gender: Gender; priceMale: string; priceFemale: string }>) => {
+  const saveLastDefaults = (override?: Partial<{ supplierId: string; productId: string; gender: Gender; priceMale: string; priceFemale: string; tareMode: 'BY_CAGE' | 'BY_WEIGHT' }>) => {
     const payload = {
       supplierId,
       productId: currentPid,
       gender,
       priceMale,
       priceFemale,
+      tareMode,
       ...override,
     };
     localStorage.setItem('gttd_import_defaults', JSON.stringify(payload));
@@ -180,6 +185,7 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
         if (defaults.gender === 'MALE' || defaults.gender === 'FEMALE') setGender(defaults.gender);
         if (typeof defaults.priceMale === 'string') setPriceMale(defaults.priceMale);
         if (typeof defaults.priceFemale === 'string') setPriceFemale(defaults.priceFemale);
+        if (defaults.tareMode === 'BY_CAGE' || defaults.tareMode === 'BY_WEIGHT') setTareMode(defaults.tareMode);
         if (defaults.productId && prodList.some(p => p.id === defaults.productId)) setCurrentPid(defaults.productId);
         if (defaults.supplierId && supList.some(s => s.id === defaults.supplierId)) {
           setSupplierId(defaults.supplierId);
@@ -196,12 +202,22 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
 
   useEffect(() => {
     if (supplierId || currentPid) saveLastDefaults();
-  }, [supplierId, currentPid, gender, priceMale, priceFemale]);
+  }, [supplierId, currentPid, gender, priceMale, priceFemale, tareMode]);
+
+  useEffect(() => {
+    const supplier = suppliers.find(s => s.id === supplierId);
+    if (!supplier) return;
+    const category = supplier.supplierCategory || 'FARM';
+    setTareMode(category === 'COMPANY' ? 'BY_WEIGHT' : 'BY_CAGE');
+  }, [supplierId, suppliers]);
 
   const detailGrossWeight = parseFloat(currentWeightInput) || 0;
-  const detailTare = parseFloat(currentTareInput) || 0;
+  const detailTareByWeight = parseFloat(currentTareInput) || 0;
+  const detailCageCount = parseInt(currentCageInput) || 0;
+  const detailTareByCage = detailCageCount * 5;
+  const detailTare = tareMode === 'BY_CAGE' ? detailTareByCage : detailTareByWeight;
   const detailCon = parseInt(currentCountInput) || 0;
-  const detailNetWeight = Math.max(0, detailGrossWeight - detailTare);
+  const detailNetWeight = detailGrossWeight - detailTare;
 
   const handleAddItemToTicket = () => {
     if (!currentPid) return alert("Chưa chọn loại gà!");
@@ -216,18 +232,50 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
     let itemGross = 0;
     let itemTare = 0;
     let detailsStr = '';
+    const keyWithoutPrice = `${currentPid}|${gender}`;
 
-    if (detailGrossWeight <= 0) {
-      alert("Vui lòng nhập tổng kg!");
-      weightInputRef.current?.focus();
-      return;
+    if (tareMode === 'BY_CAGE') {
+      if (detailGrossWeight <= 0) {
+        alert("Vui lòng nhập khối lượng (kg)!");
+        weightInputRef.current?.focus();
+        return;
+      }
+      if (detailNetWeight <= 0) return alert("Khối lượng thực bằng 0 hoặc âm!");
+
+      itemKg = detailNetWeight;
+      itemCon = detailCon;
+      itemGross = detailGrossWeight;
+      itemTare = detailTareByCage;
+      detailsStr = `${detailGrossWeight}${itemTare > 0 ? `(-${itemTare}b/${detailCageCount} lồng)` : ''}`;
+    } else {
+      if (detailGrossWeight <= 0 && detailTareByWeight <= 0 && detailCon <= 0) {
+        return alert("Nhập ít nhất một giá trị (kg, bì hoặc con)");
+      }
+
+      const lastItem = ticketItems[ticketItems.length - 1];
+      const isSameAsLastGroup = !!lastItem && lastItem.pid === currentPid && lastItem.gender === gender;
+
+      if (detailGrossWeight <= 0 && detailTareByWeight > 0) {
+        if (!isSameAsLastGroup) {
+          return alert("Nhập chỉ bì chỉ áp dụng cho dòng vừa nhập cùng loại gà và giới tính.");
+        }
+        if (lastItem.kg - detailTareByWeight < 0) {
+          return alert("Khối lượng bì vượt quá khối lượng thực của dòng hiện tại.");
+        }
+      }
+
+      if (detailGrossWeight > 0 && detailNetWeight <= 0) {
+        return alert("Khối lượng thực bằng 0 hoặc âm!");
+      }
+
+      itemKg = detailGrossWeight - detailTareByWeight;
+      itemCon = detailCon;
+      itemGross = detailGrossWeight;
+      itemTare = detailTareByWeight;
+      detailsStr = detailGrossWeight > 0
+        ? `${detailGrossWeight}${itemTare > 0 ? `(-${itemTare}b)` : ''}`
+        : `Trừ bì ${itemTare}kg`;
     }
-    if (detailNetWeight <= 0) return alert("Khối lượng thực bằng 0!");
-    itemKg = detailNetWeight;
-    itemCon = detailCon;
-    itemGross = detailGrossWeight;
-    itemTare = detailTare;
-    detailsStr = `${detailGrossWeight}${detailTare > 0 ? `(-${detailTare}b)` : ''}`;
 
     const prod = products.find(p => p.id === currentPid);
     const newItem = {
@@ -243,16 +291,19 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
       details: detailsStr,
     };
 
-    const existingIndex = ticketItems.findIndex(item => (
-      item.pid === newItem.pid && item.gender === newItem.gender && item.price === newItem.price
-    ));
+    const newItemKey = `${keyWithoutPrice}|${priceNum}`;
+    const lastItem = ticketItems[ticketItems.length - 1];
+    const canMergeLast = !!lastItem && `${lastItem.pid}|${lastItem.gender}|${lastItem.price}` === newItemKey && lastTicketKey === newItemKey;
 
-    if (existingIndex >= 0) {
+    if (canMergeLast) {
       const updatedItems = [...ticketItems];
-      const existing = updatedItems[existingIndex];
-      updatedItems[existingIndex] = {
+      const existing = updatedItems[updatedItems.length - 1];
+      const mergedKg = existing.kg + newItem.kg;
+      if (mergedKg < 0) return alert("Dòng sau khi trừ bì bị âm kg, vui lòng kiểm tra lại.");
+
+      updatedItems[updatedItems.length - 1] = {
         ...existing,
-        kg: existing.kg + newItem.kg,
+        kg: mergedKg,
         con: existing.con + newItem.con,
         total: existing.total + newItem.total,
         gross: existing.gross + newItem.gross,
@@ -261,19 +312,26 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
       };
       setTicketItems(updatedItems);
     } else {
+      if (newItem.kg < 0) {
+        return alert("Không thể tạo dòng mới chỉ với bì âm kg. Hãy nhập thêm khối lượng hoặc trừ bì trên dòng vừa nhập.");
+      }
       setTicketItems([...ticketItems, newItem]);
     }
+    setLastTicketKey(newItemKey);
 
     setCurrentWeightInput('');
     setCurrentTareInput('');
+    setCurrentCageInput('');
     setCurrentCountInput('');
     saveLastDefaults();
+    weightInputRef.current?.focus();
   };
 
   const handleRemoveTicketItem = (idx: number) => {
     const next = [...ticketItems];
     next.splice(idx, 1);
     setTicketItems(next);
+    if (next.length === 0) setLastTicketKey(null);
   };
 
   const handleImport = async () => {
@@ -302,13 +360,21 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
 
   const handleAddSupplier = () => {
     if (!newSupName) return;
-    const newSup: Partner = { id: `s-${Date.now()}`, name: newSupName, phone: newSupPhone, type: PartnerType.SUPPLIER, debt: 0 };
+    const newSup: Partner = {
+      id: `s-${Date.now()}`,
+      name: newSupName,
+      phone: newSupPhone,
+      type: PartnerType.SUPPLIER,
+      supplierCategory: newSupCategory,
+      debt: 0
+    };
     db.savePartner(newSup);
     const list = loadSuppliers();
     setSupplierId(newSup.id);
     setIsSupModalOpen(false);
     setNewSupName('');
     setNewSupPhone('');
+    setNewSupCategory('FARM');
     if (list.length > 0) saveLastDefaults({ supplierId: newSup.id });
   };
 
@@ -374,17 +440,33 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
         <div className="flex gap-2">
           <div className="flex-1">
             <select value={supplierId} onChange={(e) => setSupplierId(e.target.value)} className="w-full px-3 py-3 bg-white border border-blue-200 rounded-lg text-gray-800 font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm">
-              {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              {suppliers.map(s => <option key={s.id} value={s.id}>{s.name} ({s.supplierCategory === 'COMPANY' ? 'Công ty' : 'Trại'})</option>)}
             </select>
           </div>
           <button onClick={() => setIsSupModalOpen(true)} className="px-4 bg-blue-600 text-white rounded-lg font-bold shadow-sm">+</button>
+        </div>
+        <div className="text-[11px] text-blue-700 mt-2">
+          Mặc định kiểu tính bì: {(suppliers.find(s => s.id === supplierId)?.supplierCategory || 'FARM') === 'COMPANY' ? 'Theo khối lượng bì thực tế' : 'Theo số lồng (1 lồng = 5kg)'}
         </div>
       </Card>
 
       <Card className="mb-6 border-brand-200 shadow-md">
         <div className="flex flex-wrap justify-between items-center gap-2 mb-3">
           <h3 className="font-bold text-brand-800 flex items-center gap-2"><span>Nhập hàng</span></h3>
-          <div className="text-xs text-gray-500 italic">Điền Tổng KG - Bì (tuỳ chọn) - Con rồi bấm Thêm vào phiếu</div>
+          <div className="flex bg-gray-100 rounded-lg p-1 border border-gray-200">
+            <button
+              onClick={() => setTareMode('BY_CAGE')}
+              className={`px-3 py-1 rounded text-xs font-bold transition-all ${tareMode === 'BY_CAGE' ? 'bg-brand-600 text-white shadow' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              Theo lồng
+            </button>
+            <button
+              onClick={() => setTareMode('BY_WEIGHT')}
+              className={`px-3 py-1 rounded text-xs font-bold transition-all ${tareMode === 'BY_WEIGHT' ? 'bg-brand-600 text-white shadow' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              Bì thực tế
+            </button>
+          </div>
         </div>
 
         <div className="flex gap-2 mb-3">
@@ -414,17 +496,30 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
         <>
           <div className="flex gap-2 mb-3 items-end">
             <div className="flex-[2]">
-              <label className="text-[10px] text-gray-500 font-bold ml-1">TỔNG KG</label>
+              <label className="text-[10px] text-gray-500 font-bold ml-1">KHỐI LƯỢNG (KG)</label>
               <input ref={weightInputRef} type="number" placeholder="0.0" className="w-full px-2 py-2 text-lg font-bold text-gray-800 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none" value={currentWeightInput} onChange={e => setCurrentWeightInput(e.target.value)} />
             </div>
-            <div className="flex-1">
-              <label className="text-[10px] text-red-500 font-bold ml-1">BÌ (KG)</label>
-              <input type="number" placeholder="0" className="w-full px-2 py-2 text-lg font-bold text-red-600 bg-red-50 border border-red-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:outline-none" value={currentTareInput} onChange={e => setCurrentTareInput(e.target.value)} />
-            </div>
+            {tareMode === 'BY_CAGE' ? (
+              <div className="flex-1">
+                <label className="text-[10px] text-red-500 font-bold ml-1">SL LỒNG</label>
+                <input type="number" placeholder="0" className="w-full px-2 py-2 text-lg font-bold text-red-600 bg-red-50 border border-red-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:outline-none" value={currentCageInput} onChange={e => setCurrentCageInput(e.target.value)} />
+              </div>
+            ) : (
+              <div className="flex-1">
+                <label className="text-[10px] text-red-500 font-bold ml-1">BÌ (KG)</label>
+                <input type="number" placeholder="0" className="w-full px-2 py-2 text-lg font-bold text-red-600 bg-red-50 border border-red-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:outline-none" value={currentTareInput} onChange={e => setCurrentTareInput(e.target.value)} />
+              </div>
+            )}
             <div className="flex-1">
               <label className="text-[10px] text-gray-500 font-bold ml-1">CON</label>
               <input type="number" placeholder="0" className="w-full px-2 py-2 text-lg font-bold text-center text-gray-800 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none" value={currentCountInput} onChange={e => setCurrentCountInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleAddItemToTicket(); }} />
             </div>
+          </div>
+
+          <div className="text-[11px] text-gray-500 mb-2">
+            {tareMode === 'BY_CAGE'
+              ? 'Bì tự tính = Số lồng × 5kg'
+              : 'Cho phép chỉ nhập Bì (kg) để trừ riêng sau khi cân xong.'}
           </div>
 
           <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-2">
@@ -437,8 +532,8 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
               <span className="font-bold text-red-500">-{detailTare.toFixed(2)} kg</span>
             </div>
             <div className="border-t border-gray-300 pt-2 flex justify-between items-center">
-              <span className="font-bold text-brand-700 text-lg">Thực Nhập (Net):</span>
-              <span className="text-2xl font-bold text-brand-600">{detailNetWeight.toFixed(2)} kg</span>
+              <span className="font-bold text-brand-700 text-lg">Net thay đổi:</span>
+              <span className={`text-2xl font-bold ${detailNetWeight >= 0 ? 'text-brand-600' : 'text-red-600'}`}>{detailNetWeight.toFixed(2)} kg</span>
             </div>
           </div>
         </>
@@ -518,6 +613,13 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
         <div className="space-y-4">
           <Input label="Tên trại/người bán" value={newSupName} onChange={(e:any) => setNewSupName(e.target.value)} />
           <Input label="Số điện thoại" value={newSupPhone} onChange={(e:any) => setNewSupPhone(e.target.value)} />
+          <div>
+            <label className="text-sm font-bold text-gray-700 mb-1 block">Loại nhà cung cấp</label>
+            <div className="flex gap-2">
+              <button onClick={() => setNewSupCategory('FARM')} className={`flex-1 py-2 rounded-lg border text-sm font-bold ${newSupCategory === 'FARM' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300'}`}>Trại</button>
+              <button onClick={() => setNewSupCategory('COMPANY')} className={`flex-1 py-2 rounded-lg border text-sm font-bold ${newSupCategory === 'COMPANY' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-700 border-gray-300'}`}>Công ty</button>
+            </div>
+          </div>
           <Button className="w-full" onClick={handleAddSupplier}>Lưu</Button>
         </div>
       </Modal>
@@ -567,6 +669,11 @@ function CashbookPage() {
   const [poKg, setPoKg] = useState('');
   const [poTime, setPoTime] = useState('');
   const [poNote, setPoNote] = useState('');
+
+  // State form Chi phí khác
+  const [otherExpenseCategory, setOtherExpenseCategory] = useState('Cám');
+  const [otherExpenseAmount, setOtherExpenseAmount] = useState('');
+  const [otherExpenseNote, setOtherExpenseNote] = useState('');
 
   // State Modal Báo cáo
   const [isReportOpen, setIsReportOpen] = useState(false);
@@ -759,6 +866,20 @@ function CashbookPage() {
      db.saveBankSettings({ bankId: bankId.toUpperCase(), accountNo: accNo, accountName: lookupName.toUpperCase(), template: 'compact' });
      setIsSettingsOpen(false);
   }
+  const handleCreateOtherExpense = async () => {
+    const amount = Number(otherExpenseAmount);
+    if (!amount || amount <= 0) return alert("Vui lòng nhập số tiền chi hợp lệ");
+
+    try {
+      await db.createOtherExpense(amount, otherExpenseCategory, otherExpenseNote);
+      setTxns(db.getCashTransactions());
+      setOtherExpenseAmount('');
+      setOtherExpenseNote('');
+      alert("Đã ghi nhận khoản chi");
+    } catch (e: any) {
+      alert(e.message || 'Không thể lưu khoản chi');
+    }
+  };
   const handleSelectTxn = (txn: CashTransaction) => {
     setSelectedTxn(txn);
     if (txn.refId) setSelectedInvoice(db.getInvoice(txn.refId));
@@ -862,6 +983,28 @@ function CashbookPage() {
           </div>
       </div>
 
+      <Card title="Chi phí khác" className="mb-4">
+        <div className="grid grid-cols-2 gap-2">
+          <div className="col-span-2">
+            <Select
+              label="Nhóm chi"
+              value={otherExpenseCategory}
+              onChange={(e: any) => setOtherExpenseCategory(e.target.value)}
+              options={[
+                { value: 'Cám', label: 'Cám gà' },
+                { value: 'Bắp', label: 'Bắp' },
+                { value: 'Xăng dầu', label: 'Xăng dầu xe' },
+                { value: 'Vật tư', label: 'Vật tư khác' },
+                { value: 'Khác', label: 'Khác' },
+              ]}
+            />
+          </div>
+          <Input label="Số tiền" type="number" value={otherExpenseAmount} onChange={(e: any) => setOtherExpenseAmount(e.target.value)} placeholder="0" />
+          <Input label="Ghi chú" value={otherExpenseNote} onChange={(e: any) => setOtherExpenseNote(e.target.value)} placeholder="Tuỳ chọn" />
+        </div>
+        <Button className="w-full mt-3" variant="danger" onClick={handleCreateOtherExpense}>+ Ghi nhận chi phí</Button>
+      </Card>
+
       <Card title={`Biểu đồ ${viewMode === 'MONTH' ? 'Tháng' : 'Năm'}`} className="mb-4 h-64">
          <ResponsiveContainer width="100%" height="100%">
             <BarChart data={chartData}>
@@ -956,7 +1099,7 @@ function CashbookPage() {
                           <div className="bg-white rounded shadow border border-gray-200 overflow-hidden max-h-[60vh] overflow-y-auto">
                             <div className="p-4 text-center border-b border-gray-200 border-dashed">
                               <h2 className="text-xl font-extrabold text-gray-800 uppercase tracking-widest">Phiếu Nhập Hàng</h2>
-                              <p className="text-xs text-gray-500 mt-1">{new Date(selectedInvoice.date).toLocaleString('vi-VN')}</p>
+                              <p className="text-xs text-gray-500 mt-1">{new Date(selectedTxn?.date || selectedInvoice.date).toLocaleString('vi-VN')}</p>
                               <div className="mt-3 text-left bg-gray-50 p-2 rounded text-sm border border-gray-200">
                                 <div><span className="font-bold text-gray-600">NCC:</span> {selectedInvoice.partnerName}</div>
                               </div>
@@ -1085,6 +1228,7 @@ function PartnersPage() {
   const [formName, setFormName] = useState('');
   const [formPhone, setFormPhone] = useState('');
   const [formType, setFormType] = useState<PartnerType>(PartnerType.CUSTOMER);
+  const [formSupplierCategory, setFormSupplierCategory] = useState<SupplierCategory>('FARM');
   const [formDebt, setFormDebt] = useState('0');
 
   // Modal Detail & Pay Debt
@@ -1173,12 +1317,14 @@ function PartnersPage() {
       setFormName(p.name);
       setFormPhone(p.phone);
       setFormType(p.type);
+      setFormSupplierCategory(p.supplierCategory || 'FARM');
       setFormDebt(p.debt.toString());
     } else {
       setEditingId(null);
       setFormName('');
       setFormPhone('');
       setFormType(PartnerType.CUSTOMER);
+      setFormSupplierCategory('FARM');
       setFormDebt('0');
     }
     setIsModalOpen(true);
@@ -1193,6 +1339,7 @@ function PartnersPage() {
       name: formName,
       phone: formPhone,
       type: formType,
+      supplierCategory: formType === PartnerType.SUPPLIER ? formSupplierCategory : undefined,
       debt
     };
     db.savePartner(partner);
@@ -1243,8 +1390,8 @@ function PartnersPage() {
              <div>
                <div className="font-bold text-gray-800 flex items-center gap-2">
                  {p.name} 
-                 <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wide font-bold ${p.type === 'CUSTOMER' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>
-                   {p.type === 'CUSTOMER' ? 'Khách' : 'Trại'}
+                 <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wide font-bold ${p.type === 'CUSTOMER' ? 'bg-orange-100 text-orange-700' : p.supplierCategory === 'COMPANY' ? 'bg-indigo-100 text-indigo-700' : 'bg-blue-100 text-blue-700'}`}>
+                   {p.type === 'CUSTOMER' ? 'Khách' : p.supplierCategory === 'COMPANY' ? 'Công ty' : 'Trại'}
                  </span>
                </div>
                <div className="text-xs text-gray-500 mt-0.5">{p.phone || 'Chưa có SĐT'}</div>
@@ -1278,6 +1425,17 @@ function PartnersPage() {
             />
             <Input label="Tên" value={formName} onChange={(e: any) => setFormName(e.target.value)} placeholder="Tên khách/trại..." />
             <Input label="Số điện thoại" value={formPhone} onChange={(e: any) => setFormPhone(e.target.value)} type="tel" />
+            {formType === PartnerType.SUPPLIER && (
+              <Select
+                label="Phân loại nhà cung cấp"
+                value={formSupplierCategory}
+                onChange={(e: any) => setFormSupplierCategory(e.target.value)}
+                options={[
+                  { value: 'FARM', label: 'Trại tư nhân (mặc định kiểu bì theo lồng)' },
+                  { value: 'COMPANY', label: 'Công ty (mặc định kiểu bì thực tế)' }
+                ]}
+              />
+            )}
             <Input
               label="Dư nợ hiện tại"
               type="number"

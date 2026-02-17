@@ -20,6 +20,8 @@ export enum PartnerType {
   SUPPLIER = 'SUPPLIER',
 }
 
+export type SupplierCategory = 'FARM' | 'COMPANY';
+
 export enum PaymentMethod {
   CASH = 'CASH',
   TRANSFER = 'TRANSFER',
@@ -47,6 +49,7 @@ export interface Partner {
   name: string;
   phone: string;
   type: PartnerType;
+  supplierCategory?: SupplierCategory;
   debt: number; // Positive means they owe us (Customer) or we owe them (Supplier)
 }
 
@@ -119,6 +122,8 @@ export interface DashboardStats {
   receivables: number;
   importCapital: number; // Total cumulative
   importToday: number; // Only today
+  otherExpenseToday: number;
+  totalExpenseToday: number;
 }
 
 export interface PreOrder {

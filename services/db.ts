@@ -18,7 +18,7 @@ const SEED_PRODUCTS: Product[] = [
 ]
 
 const SEED_PARTNERS: Partner[] = [
-  { id: 's1', name: 'Trại Gà Ba Vì', phone: '0901234567', type: PartnerType.SUPPLIER, debt: 0 },
+  { id: 's1', name: 'Trại Gà Ba Vì', phone: '0901234567', type: PartnerType.SUPPLIER, supplierCategory: 'FARM', debt: 0 },
   { id: 'c1', name: 'Khách Lẻ', phone: '', type: PartnerType.CUSTOMER, debt: 0 },
 ];
 
@@ -542,13 +542,34 @@ class Database {
 
     // Lưu ý: revenueToday ở Dashboard hiển thị, bạn có thể chọn hiển thị "Doanh số bán" hoặc "Thực thu". 
     // Ở đây tôi đề xuất hiển thị "Doanh số bán" (Sales Revenue) để khớp với Lợi nhuận.
-    return { 
+    return {
         revenueToday: salesRevenueToday, // Đã đổi từ tiền mặt sang doanh số
         profitToday, 
         receivables, 
         importCapital, 
-        importToday 
+        importToday,
+        otherExpenseToday: operatingExpensesToday,
+        totalExpenseToday: importToday + operatingExpensesToday
     };
+  }
+
+  async createOtherExpense(amount: number, category: string, note?: string, dateTime?: string) {
+    if (!amount || amount <= 0) throw new Error("Số tiền chi không hợp lệ");
+
+    const cashTxns = this.getCashTransactions();
+    const ts = dateTime || new Date().toISOString();
+
+    const newTxn: CashTransaction = {
+      id: `txn-exp-${Date.now()}`,
+      date: ts,
+      type: TransactionType.EXPENSE,
+      amount,
+      description: note ? `Chi ${category}: ${note}` : `Chi ${category}`,
+    };
+
+    this.save(BASE_KEYS.CASH, [newTxn, ...cashTxns]);
+    await delay(150);
+    return newTxn;
   }
 
   // --- TÍNH NĂNG MỚI: THANH TOÁN NỢ ---
