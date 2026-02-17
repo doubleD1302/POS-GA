@@ -675,14 +675,16 @@ function CashbookPage() {
   const [isSummaryUnlocked, setIsSummaryUnlocked] = useState(false);
 
   const customerOptions = db.getPartners(PartnerType.CUSTOMER);
+  const quickCustomerOptions = db.getQuickCustomers();
   const productOptions = db.getProducts();
-  const manualGoodsOptions = Array.from(new Set(
-    invoices
+  const manualGoodsOptions = Array.from(new Set([
+    ...invoices
       .flatMap(inv => inv.lines || [])
       .filter(line => line.productId === 'MANUAL' && !!line.productName)
       .map(line => line.productName.trim())
-      .filter(Boolean)
-  ));
+      .filter(Boolean),
+    ...db.getQuickItems()
+  ]));
 
   const reloadPreOrders = () => {
     setPreOrders(db.getPreOrders().filter(o => o.status !== 'DONE'));
@@ -929,6 +931,8 @@ function CashbookPage() {
   }
   const handleSaveOrder = () => {
     if (!poName || !poTime) return alert("Cần nhập tên khách và giờ hẹn");
+    db.saveQuickCustomer(poName, poPhone);
+    db.saveQuickItem(poProduct);
     const order: PreOrder = {
       id: selectedOrder ? selectedOrder.id : `po-${Date.now()}`, customerName: poName, phone: poPhone,
       productNote: poProduct,
@@ -953,10 +957,23 @@ function CashbookPage() {
     db.savePreOrder(prepared); reloadPreOrders(); setIsOrderModalOpen(false);
   }
   const handleSelectSuggestedCustomer = (customerId: string) => {
-    const customer = customerOptions.find(c => c.id === customerId);
-    if (!customer) return;
-    setPoName(customer.name || '');
-    setPoPhone(customer.phone || '');
+    if (!customerId) return;
+
+    if (customerId.startsWith('partner:')) {
+      const id = customerId.replace('partner:', '');
+      const customer = customerOptions.find(c => c.id === id);
+      if (!customer) return;
+      setPoName(customer.name || '');
+      setPoPhone(customer.phone || '');
+      return;
+    }
+
+    if (customerId.startsWith('quick:')) {
+      const payload = customerId.replace('quick:', '');
+      const [encodedName, encodedPhone] = payload.split('::');
+      setPoName(decodeURIComponent(encodedName || ''));
+      setPoPhone(decodeURIComponent(encodedPhone || ''));
+    }
   };
 
   const handleSelectSuggestedProduct = (value: string) => {
@@ -966,9 +983,11 @@ function CashbookPage() {
       setPoProduct(foundProduct.name);
       const quickPrice = Number(foundProduct.priceMale || 0);
       if (quickPrice > 0 && !poPrice) setPoPrice(String(quickPrice));
+      db.saveQuickItem(foundProduct.name);
       return;
     }
     setPoProduct(value);
+    db.saveQuickItem(value);
   };
 
   const handleDeliverSuccess = async () => {
@@ -1014,6 +1033,8 @@ function CashbookPage() {
     };
 
     try {
+      db.saveQuickCustomer(poName, poPhone);
+      db.saveQuickItem(poProduct);
       const invoice = await db.createSale(customer.id, poTime.split('T')[0], [saleLine], 0);
       db.savePreOrder({
         ...selectedOrder,
@@ -1105,7 +1126,7 @@ function CashbookPage() {
             onClick={handleSummarySecurityToggle}
             className={`text-xs font-bold px-2 py-1 rounded border ${isSummaryUnlocked ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-100 text-gray-600 border-gray-200'}`}
           >
-            {isSummaryUnlocked ? '🔓 Khoá lại' : '🔒 Mở khoá'}
+            {isSummaryUnlocked ? 'Đóng' : 'Xem'}
           </button>
         </div>
 
@@ -1147,56 +1168,6 @@ function CashbookPage() {
             </BarChart>
          </ResponsiveContainer>
       </Card>
-
-      {/* PRE-ORDERS (Giữ nguyên) */}
-      <div className="mb-6">
-        <div className="flex justify-between items-center mb-2">
-           <h3 className="font-bold text-gray-700">Đơn đặt hàng</h3>
-           <button onClick={() => handleOpenOrderModal()} className="text-sm bg-brand-600 text-white px-3 py-1 rounded-lg shadow font-medium">+ Thêm</button>
-        </div>
-        <div className="flex gap-2 mb-2">
-          <button
-            onClick={() => setOrderView('PENDING')}
-            className={`px-3 py-1 rounded-full text-xs font-bold border ${orderView === 'PENDING' ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-gray-600 border-gray-300'}`}
-          >
-            Chờ chuẩn bị ({preOrders.filter(p => p.status === 'PENDING').length})
-          </button>
-          <button
-            onClick={() => setOrderView('PREPARED')}
-            className={`px-3 py-1 rounded-full text-xs font-bold border ${orderView === 'PREPARED' ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-600 border-gray-300'}`}
-          >
-            Chuẩn bị xong ({preOrders.filter(p => p.status === 'PREPARED').length})
-          </button>
-        </div>
-        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-2 space-y-2 min-h-[60px]">
-           {preOrders.filter(po => po.status === orderView).length === 0 ? (
-             <div className="text-center text-gray-400 text-sm italic py-2">Chưa có đơn đặt hàng nào</div>
-           ) : (
-             preOrders.filter(po => po.status === orderView).map(po => (
-               <div 
-                 key={po.id} 
-                 onDoubleClick={() => handleOpenOrderModal(po)}
-                 className="bg-white border border-yellow-100 p-3 rounded-lg shadow-sm flex items-center justify-between cursor-pointer hover:bg-yellow-50 transition-colors"
-               >
-                 <div className="flex items-center gap-3">
-                    <div className="bg-yellow-100 text-yellow-800 font-bold px-2 py-1 rounded text-xs text-center min-w-[50px]">
-                      {formatTime(po.deliveryTime)} <br/>
-                      <span className="font-normal text-[10px]">{formatDateShort(po.deliveryTime)}</span>
-                    </div>
-                    <div>
-                      <div className="font-bold text-gray-800">{po.customerName}</div>
-                      <div className="text-xs text-gray-500">{po.productNote} {po.qtyCon ? `(${po.qtyCon} con)` : ''}</div>
-                      <div className="text-[10px] mt-1 inline-flex px-2 py-0.5 rounded-full font-bold border border-gray-200 text-gray-600 bg-gray-50">
-                        {po.status === 'PREPARED' ? 'Đã chuẩn bị - chờ giao' : 'Chờ chuẩn bị'}
-                      </div>
-                    </div>
-                 </div>
-                 <div className="text-gray-300"><ICONS.Plus /></div>
-               </div>
-             ))
-           )}
-        </div>
-      </div>
 
       {/* TRANSACTION LIST (Đã lọc theo thời gian) */}
       <h3 className="font-bold text-gray-700 mb-2">Lịch sử giao dịch ({mixedList.length})</h3>
@@ -1309,55 +1280,6 @@ function CashbookPage() {
                 </>
             )}
             <Button className="w-full" onClick={() => setSelectedTxn(null)}>Đóng</Button>
-         </div>
-      </Modal>
-
-      {/* PreOrder Details Modal */}
-      <Modal isOpen={isOrderModalOpen} onClose={() => setIsOrderModalOpen(false)} title={selectedOrder ? "Chi tiết đặt hàng" : "Thêm đơn đặt hàng"}>
-         <div className="space-y-4">
-            <Select
-              label="Chọn nhanh khách đã lưu"
-              value=""
-              onChange={(e: any) => handleSelectSuggestedCustomer(e.target.value)}
-              options={[
-                { value: '', label: '-- Chọn khách hàng --' },
-                ...customerOptions.map(c => ({ value: c.id, label: `${c.name}${c.phone ? ` - ${c.phone}` : ''}` }))
-              ]}
-            />
-            <Input label="Tên khách hàng" value={poName} onChange={(e:any) => setPoName(e.target.value)} />
-            <Input label="Số điện thoại" value={poPhone} onChange={(e:any) => setPoPhone(e.target.value)} type="tel" />
-            <Input label="Thời gian giao" type="datetime-local" value={poTime} onChange={(e:any) => setPoTime(e.target.value)} />
-            <div className="border-t border-gray-200 pt-2">
-                <Select
-                  label="Chọn nhanh loại gà / hàng"
-                  value=""
-                  onChange={(e: any) => handleSelectSuggestedProduct(e.target.value)}
-                  options={[
-                    { value: '', label: '-- Chọn mặt hàng --' },
-                    ...productOptions.map(p => ({ value: p.id, label: p.name })),
-                    ...manualGoodsOptions.map(name => ({ value: name, label: `${name} (đã dùng)` }))
-                  ]}
-                />
-                <Input label="Loại gà / Hàng hoá" value={poProduct} onChange={(e:any) => setPoProduct(e.target.value)} />
-                <div className="flex gap-2 mt-2">
-                   <div className="flex-1"><Input label="Số con" type="number" value={poCon} onChange={(e:any) => setPoCon(e.target.value)} /></div>
-                   <div className="flex-1"><Input label="Số Kg" type="number" value={poKg} onChange={(e:any) => setPoKg(e.target.value)} /></div>
-                </div>
-                <Input label="Đơn giá" type="number" value={poPrice} onChange={(e:any) => setPoPrice(e.target.value)} placeholder="VND / kg hoặc con" className="mt-2" />
-            </div>
-            <textarea className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white" value={poNote} onChange={e => setPoNote(e.target.value)} placeholder="Ghi chú..." />
-            <div className="flex gap-2 pt-2">
-               {selectedOrder ? (
-                  <>
-                    <Button variant="danger" className="flex-1" onClick={handleDeleteOrder}>Xoá</Button>
-                    {selectedOrder.status !== 'PREPARED' && (
-                      <Button variant="secondary" className="flex-1" onClick={handleMarkPreparedOrder}>Chuẩn bị xong</Button>
-                    )}
-                    <Button variant="success" className="flex-1" onClick={handleDeliverSuccess}>Giao hàng thành công</Button>
-                    <Button className="flex-1" onClick={handleSaveOrder}>Lưu Sửa</Button>
-                  </>
-               ) : <Button className="w-full" onClick={handleSaveOrder}>Lưu Đơn Đặt</Button>}
-            </div>
          </div>
       </Modal>
 

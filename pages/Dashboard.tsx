@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { db } from '../services/db';
-import { DashboardStats } from '../types';
+import { DashboardStats, PartnerType, PreOrder, Unit } from '../types';
 import { formatCurrency, ICONS } from '../constants';
-import { StatCard, Button, Card, Input, Select } from '../components/ui';
+import { StatCard, Button, Card, Input, Select, Modal } from '../components/ui';
 
 export default function Dashboard({ navigate, onLogout }: { navigate: (page: string) => void, onLogout: () => void }) {
   const [stats, setStats] = useState<DashboardStats | null>(null);
@@ -13,14 +13,55 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
   const [otherExpenseAmount, setOtherExpenseAmount] = useState('');
   const [otherExpenseNote, setOtherExpenseNote] = useState('');
   const [isSavingExpense, setIsSavingExpense] = useState(false);
+  const [preOrders, setPreOrders] = useState<PreOrder[]>([]);
+  const [orderView, setOrderView] = useState<'PENDING' | 'PREPARED'>('PENDING');
+  const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
+  const [selectedOrder, setSelectedOrder] = useState<PreOrder | null>(null);
+  const [poName, setPoName] = useState('');
+  const [poPhone, setPoPhone] = useState('');
+  const [poProduct, setPoProduct] = useState('');
+  const [poCon, setPoCon] = useState('');
+  const [poKg, setPoKg] = useState('');
+  const [poPrice, setPoPrice] = useState('');
+  const [poTime, setPoTime] = useState('');
+  const [poNote, setPoNote] = useState('');
+  const [quickCustomerOptions, setQuickCustomerOptions] = useState<{ name: string; phone?: string }[]>([]);
+
+  const customerOptions = db.getPartners(PartnerType.CUSTOMER);
+  const normalizeValue = (value: string) => (value || '').trim().toLowerCase();
+  const filteredQuickCustomerOptions = quickCustomerOptions.filter(q => {
+    const quickName = normalizeValue(q.name || '');
+    const quickPhone = normalizeValue(q.phone || '');
+    return !customerOptions.some(c => {
+      const customerName = normalizeValue(c.name || '');
+      const customerPhone = normalizeValue(c.phone || '');
+      if (quickPhone && customerPhone && quickPhone === customerPhone) return true;
+      return quickName === customerName && quickPhone === customerPhone;
+    });
+  });
+  const productOptions = db.getProducts();
+  const manualGoodsOptions = Array.from(new Set([
+    ...db.getInvoices()
+      .flatMap(inv => inv.lines || [])
+      .filter(line => line.productId === 'MANUAL' && !!line.productName)
+      .map(line => line.productName.trim())
+      .filter(Boolean),
+    ...db.getQuickItems()
+  ]));
 
   const refreshStats = () => {
     const data = db.getDashboardStats();
     setStats(data);
   };
 
+  const reloadPreOrders = () => {
+    setPreOrders(db.getPreOrders().filter(o => o.status !== 'DONE'));
+  };
+
   useEffect(() => {
     refreshStats();
+    reloadPreOrders();
+    setQuickCustomerOptions(db.getQuickCustomers());
   }, []);
 
   if (!stats) return <div className="p-4">Đang tải...</div>;
@@ -75,6 +116,168 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
     }
   };
 
+  const handleOpenOrderModal = (order?: PreOrder) => {
+    if (order) {
+      setSelectedOrder(order); setPoName(order.customerName); setPoPhone(order.phone || '');
+      setPoProduct(order.productNote); setPoCon(order.qtyCon?.toString() || ''); setPoKg(order.qtyKg?.toString() || '');
+      setPoPrice(order.unitPrice ? String(order.unitPrice) : '');
+      setPoTime(order.deliveryTime); setPoNote(order.note || '');
+    } else {
+      setSelectedOrder(null); setPoName(''); setPoPhone(''); setPoProduct(''); setPoCon(''); setPoKg('');
+      setPoPrice('');
+      const now = new Date(); now.setHours(now.getHours() + 1); now.setMinutes(0); setPoTime(now.toISOString().slice(0, 16)); setPoNote('');
+    }
+    setIsOrderModalOpen(true);
+  }
+
+  const handleSaveOrder = () => {
+    if (!poName || !poTime) return alert('Cần nhập tên khách và giờ hẹn');
+    db.saveQuickCustomer(poName, poPhone);
+    db.saveQuickItem(poProduct);
+    setQuickCustomerOptions(db.getQuickCustomers());
+    const order: PreOrder = {
+      id: selectedOrder ? selectedOrder.id : `po-${Date.now()}`,
+      customerName: poName,
+      phone: poPhone,
+      productNote: poProduct,
+      qtyCon: Number(poCon) || 0,
+      qtyKg: Number(poKg) || 0,
+      unitPrice: Number(poPrice) || 0,
+      deliveryTime: poTime,
+      note: poNote,
+      status: selectedOrder?.status || 'PENDING'
+    };
+    db.savePreOrder(order);
+    reloadPreOrders();
+    setIsOrderModalOpen(false);
+  }
+
+  const handleDeleteOrder = () => {
+    if (!selectedOrder) return;
+    if (window.confirm('Xoá đơn đặt hàng này?')) {
+      db.deletePreOrder(selectedOrder.id);
+      reloadPreOrders();
+      setIsOrderModalOpen(false);
+    }
+  }
+
+  const handleMarkPreparedOrder = () => {
+    if (!selectedOrder) return;
+    db.savePreOrder({ ...selectedOrder, status: 'PREPARED' });
+    reloadPreOrders();
+    setIsOrderModalOpen(false);
+  }
+
+  const handleSelectSuggestedCustomer = (customerId: string) => {
+    if (!customerId) return;
+
+    if (customerId.startsWith('partner:')) {
+      const id = customerId.replace('partner:', '');
+      const customer = customerOptions.find(c => c.id === id);
+      if (!customer) return;
+      setPoName(customer.name || '');
+      setPoPhone(customer.phone || '');
+      return;
+    }
+
+    if (customerId.startsWith('quick:')) {
+      const payload = customerId.replace('quick:', '');
+      const [encodedName, encodedPhone] = payload.split('::');
+      setPoName(decodeURIComponent(encodedName || ''));
+      setPoPhone(decodeURIComponent(encodedPhone || ''));
+    }
+  };
+
+  const handleSelectSuggestedProduct = (value: string) => {
+    if (!value) return;
+    const foundProduct = productOptions.find(p => p.id === value || p.name === value);
+    if (foundProduct) {
+      setPoProduct(foundProduct.name);
+      const quickPrice = Number(foundProduct.priceMale || 0);
+      if (quickPrice > 0 && !poPrice) setPoPrice(String(quickPrice));
+      db.saveQuickItem(foundProduct.name);
+      return;
+    }
+    setPoProduct(value);
+    db.saveQuickItem(value);
+  };
+
+  const handleDeleteQuickCustomer = (name: string, phone?: string) => {
+    db.deleteQuickCustomer(name, phone);
+    setQuickCustomerOptions(db.getQuickCustomers());
+  };
+
+  const handleDeliverSuccess = async () => {
+    if (!selectedOrder) return;
+
+    const qtyCon = Number(poCon) || 0;
+    const qtyKg = Number(poKg) || 0;
+    const unitPrice = Number(poPrice) || 0;
+
+    if (!poName || !poProduct || !poTime) return alert('Vui lòng nhập đủ khách hàng, hàng hoá và thời gian giao.');
+    if (qtyCon <= 0 && qtyKg <= 0) return alert('Cần nhập ít nhất Số con hoặc Số kg.');
+    if (unitPrice <= 0) return alert('Vui lòng nhập đơn giá hợp lệ để xuất hoá đơn.');
+
+    let customer = customerOptions.find(c => (poPhone && c.phone === poPhone) || c.name.trim().toLowerCase() === poName.trim().toLowerCase());
+    if (!customer) {
+      customer = {
+        id: `partner-${Date.now()}`,
+        name: poName.trim(),
+        phone: poPhone.trim(),
+        type: PartnerType.CUSTOMER,
+        debt: 0
+      };
+      db.savePartner(customer);
+    }
+
+    const matchedProduct = productOptions.find(p => p.name.trim().toLowerCase() === poProduct.trim().toLowerCase());
+    const saleLine = matchedProduct ? {
+      productId: matchedProduct.id,
+      productName: matchedProduct.name,
+      qtyCon,
+      qtyKg,
+      unit: qtyKg > 0 ? Unit.KG : Unit.CON,
+      price: unitPrice,
+      gender: 'MALE'
+    } : {
+      productId: 'MANUAL',
+      productName: poProduct,
+      qtyCon,
+      qtyKg,
+      unit: qtyKg > 0 ? Unit.KG : Unit.CON,
+      price: unitPrice,
+      gender: 'MALE'
+    };
+
+    try {
+      db.saveQuickCustomer(poName, poPhone);
+      db.saveQuickItem(poProduct);
+      setQuickCustomerOptions(db.getQuickCustomers());
+      await db.createSale(customer.id, poTime.split('T')[0], [saleLine], 0);
+      db.savePreOrder({
+        ...selectedOrder,
+        customerName: poName,
+        phone: poPhone,
+        productNote: poProduct,
+        qtyCon,
+        qtyKg,
+        unitPrice,
+        deliveryTime: poTime,
+        note: poNote,
+        status: 'DONE'
+      });
+      reloadPreOrders();
+      refreshStats();
+      setIsOrderModalOpen(false);
+      alert('Đã giao hàng thành công và xuất hoá đơn.');
+    } catch (e: any) {
+      alert(e.message || 'Không thể xuất hoá đơn giao hàng.');
+    }
+  }
+
+  const formatTime = (isoString: string) => { try { const d = new Date(isoString); return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`; } catch (e) { return ''; } }
+  const formatDateShort = (isoString: string) => { try { const d = new Date(isoString); return `${d.getDate()}/${d.getMonth() + 1}`; } catch (e) { return ''; } }
+
   return (
     <div className="space-y-4 pb-20">
       <header className="flex justify-between items-start mb-4">
@@ -105,7 +308,7 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
             onClick={handleSalesSecurityToggle}
             className={`text-xs font-bold px-2 py-1 rounded border ${isSalesUnlocked ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-100 text-gray-600 border-gray-200'}`}
           >
-            {isSalesUnlocked ? '🔓 Khoá lại' : '🔒 Mở khoá'}
+            {isSalesUnlocked ? 'Đóng' : 'Xem'}
           </button>
         </div>
 
@@ -162,6 +365,55 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
         )}
       </Card>
 
+      <div className="mb-2">
+        <div className="flex justify-between items-center mb-2">
+          <h3 className="font-bold text-gray-700">Đơn đặt hàng</h3>
+          <button onClick={() => handleOpenOrderModal()} className="text-sm bg-brand-600 text-white px-3 py-1 rounded-lg shadow font-medium">+ Thêm</button>
+        </div>
+        <div className="flex gap-2 mb-2">
+          <button
+            onClick={() => setOrderView('PENDING')}
+            className={`px-3 py-1 rounded-full text-xs font-bold border ${orderView === 'PENDING' ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-gray-600 border-gray-300'}`}
+          >
+            Chờ chuẩn bị ({preOrders.filter(p => p.status === 'PENDING').length})
+          </button>
+          <button
+            onClick={() => setOrderView('PREPARED')}
+            className={`px-3 py-1 rounded-full text-xs font-bold border ${orderView === 'PREPARED' ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-600 border-gray-300'}`}
+          >
+            Chuẩn bị xong ({preOrders.filter(p => p.status === 'PREPARED').length})
+          </button>
+        </div>
+        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-2 space-y-2 min-h-[60px]">
+          {preOrders.filter(po => po.status === orderView).length === 0 ? (
+            <div className="text-center text-gray-400 text-sm italic py-2">Chưa có đơn đặt hàng nào</div>
+          ) : (
+            preOrders.filter(po => po.status === orderView).map(po => (
+              <div
+                key={po.id}
+                onDoubleClick={() => handleOpenOrderModal(po)}
+                className="bg-white border border-yellow-100 p-3 rounded-lg shadow-sm flex items-center justify-between cursor-pointer hover:bg-yellow-50 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="bg-yellow-100 text-yellow-800 font-bold px-2 py-1 rounded text-xs text-center min-w-[50px]">
+                    {formatTime(po.deliveryTime)} <br />
+                    <span className="font-normal text-[10px]">{formatDateShort(po.deliveryTime)}</span>
+                  </div>
+                  <div>
+                    <div className="font-bold text-gray-800">{po.customerName}</div>
+                    <div className="text-xs text-gray-500">{po.productNote} {po.qtyCon ? `(${po.qtyCon} con)` : ''}</div>
+                    <div className="text-[10px] mt-1 inline-flex px-2 py-0.5 rounded-full font-bold border border-gray-200 text-gray-600 bg-gray-50">
+                      {po.status === 'PREPARED' ? 'Đã chuẩn bị - chờ giao' : 'Chờ chuẩn bị'}
+                    </div>
+                  </div>
+                </div>
+                <div className="text-gray-300"><ICONS.Plus /></div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
       <Card title="Phím tắt">
         <div className="grid grid-cols-2 gap-3">
           <Button onClick={() => navigate('pos')} variant="primary" className="flex justify-center items-center gap-2">
@@ -172,6 +424,73 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
           </Button>
         </div>
       </Card>
+
+      <Modal isOpen={isOrderModalOpen} onClose={() => setIsOrderModalOpen(false)} title={selectedOrder ? 'Chi tiết đặt hàng' : 'Thêm đơn đặt hàng'}>
+        <div className="space-y-4">
+          <Select
+            label="Chọn nhanh khách đã lưu"
+            value=""
+            onChange={(e: any) => handleSelectSuggestedCustomer(e.target.value)}
+            options={[
+              { value: '', label: '-- Chọn khách hàng --' },
+              ...customerOptions.map(c => ({ value: `partner:${c.id}`, label: `${c.name}${c.phone ? ` - ${c.phone}` : ''}` })),
+              ...filteredQuickCustomerOptions.map(c => ({ value: `quick:${encodeURIComponent(c.name)}::${encodeURIComponent(c.phone || '')}`, label: `${c.name}${c.phone ? ` - ${c.phone}` : ''} (nhập tay)` }))
+            ]}
+          />
+          {filteredQuickCustomerOptions.length > 0 && (
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-2 -mt-2">
+              <div className="text-[11px] text-gray-500 font-bold uppercase mb-2">Xoá nhanh khách nhập tay</div>
+              <div className="flex flex-wrap gap-2">
+                {filteredQuickCustomerOptions.map((c, idx) => (
+                  <button
+                    key={`${c.name}-${c.phone || ''}-${idx}`}
+                    type="button"
+                    onClick={() => handleDeleteQuickCustomer(c.name, c.phone)}
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-white border border-gray-200 text-gray-700 hover:bg-red-50 hover:border-red-200 hover:text-red-600"
+                  >
+                    <span>{c.name}{c.phone ? ` - ${c.phone}` : ''}</span>
+                    <span>✕</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <Input label="Tên khách hàng" value={poName} onChange={(e: any) => setPoName(e.target.value)} />
+          <Input label="Số điện thoại" value={poPhone} onChange={(e: any) => setPoPhone(e.target.value)} type="tel" />
+          <Input label="Thời gian giao" type="datetime-local" value={poTime} onChange={(e: any) => setPoTime(e.target.value)} />
+          <div className="border-t border-gray-200 pt-2">
+            <Select
+              label="Chọn nhanh loại gà / hàng"
+              value=""
+              onChange={(e: any) => handleSelectSuggestedProduct(e.target.value)}
+              options={[
+                { value: '', label: '-- Chọn mặt hàng --' },
+                ...productOptions.map(p => ({ value: p.id, label: p.name })),
+                ...manualGoodsOptions.map(name => ({ value: name, label: `${name} (đã dùng)` }))
+              ]}
+            />
+            <Input label="Loại gà / Hàng hoá" value={poProduct} onChange={(e: any) => setPoProduct(e.target.value)} />
+            <div className="flex gap-2 mt-2">
+              <div className="flex-1"><Input label="Số con" type="number" value={poCon} onChange={(e: any) => setPoCon(e.target.value)} /></div>
+              <div className="flex-1"><Input label="Số Kg" type="number" value={poKg} onChange={(e: any) => setPoKg(e.target.value)} /></div>
+            </div>
+            <Input label="Đơn giá" type="number" value={poPrice} onChange={(e: any) => setPoPrice(e.target.value)} placeholder="VND / kg hoặc con" className="mt-2" />
+          </div>
+          <textarea className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white" value={poNote} onChange={e => setPoNote(e.target.value)} placeholder="Ghi chú..." />
+          <div className="flex gap-2 pt-2">
+            {selectedOrder ? (
+              <>
+                <Button variant="danger" className="flex-1" onClick={handleDeleteOrder}>Xoá</Button>
+                {selectedOrder.status !== 'PREPARED' && (
+                  <Button variant="secondary" className="flex-1" onClick={handleMarkPreparedOrder}>Chuẩn bị xong</Button>
+                )}
+                <Button variant="success" className="flex-1" onClick={handleDeliverSuccess}>Giao hàng thành công</Button>
+                <Button className="flex-1" onClick={handleSaveOrder}>Lưu Sửa</Button>
+              </>
+            ) : <Button className="w-full" onClick={handleSaveOrder}>Lưu Đơn Đặt</Button>}
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

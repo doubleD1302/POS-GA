@@ -56,6 +56,7 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
       debt: 0
     };
     db.savePartner(newCust);
+    db.saveQuickCustomer(newCustName, newCustPhone);
     loadCustomers(newCust.id);
     setIsAddCustModalOpen(false);
     setNewCustName('');
@@ -113,6 +114,12 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
         return;
     }
 
+    if (isManualItem) {
+      db.saveQuickItem(manualName);
+    } else if (activeProduct?.name) {
+      db.saveQuickItem(activeProduct.name);
+    }
+
     setCart([...cart, {
       productId: activeProduct.id,
       productName: isManualItem ? manualName : `${activeProduct.name} ${saleGender === 'MALE' ? '(Trống)' : '(Mái)'}`, // Thêm suffix tên cho dễ nhìn
@@ -142,6 +149,9 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
 
     setIsSubmitting(true);
     try {
+      const selectedCustomer = customers.find(c => c.id === selectedCustomerId);
+      if (selectedCustomer) db.saveQuickCustomer(selectedCustomer.name, selectedCustomer.phone);
+
       await db.createSale(
         selectedCustomerId,
         new Date().toISOString().split('T')[0],

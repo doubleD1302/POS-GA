@@ -30,6 +30,8 @@ const BASE_KEYS = {
   CASH: 'cash',
   BANK: 'bank',
   PREORDERS: 'preorders',
+  QUICK_CUSTOMERS: 'quick_customers',
+  QUICK_ITEMS: 'quick_items',
   START_DATE: 'start_date',
 };
 
@@ -238,6 +240,14 @@ class Database {
     return this.load<PreOrder[]>(BASE_KEYS.PREORDERS, []).sort((a, b) => new Date(a.deliveryTime).getTime() - new Date(b.deliveryTime).getTime());
   }
 
+  getQuickCustomers(): { name: string; phone?: string }[] {
+    return this.load<{ name: string; phone?: string }[]>(BASE_KEYS.QUICK_CUSTOMERS, []);
+  }
+
+  getQuickItems(): string[] {
+    return this.load<string[]>(BASE_KEYS.QUICK_ITEMS, []);
+  }
+
   // --- WRITE FUNCTIONS ---
   saveBankSettings(settings: BankSettings) { this.save(BASE_KEYS.BANK, settings); }
   
@@ -273,6 +283,55 @@ class Database {
     if (index >= 0) list[index] = order;
     else list.push(order);
     this.save(BASE_KEYS.PREORDERS, list);
+  }
+
+  saveQuickCustomer(name: string, phone?: string) {
+    const safeName = (name || '').trim();
+    const safePhone = (phone || '').trim();
+    if (!safeName) return;
+
+    const normalize = (value: string) => (value || '').trim().toLowerCase();
+    const customers = this.getPartners(PartnerType.CUSTOMER);
+    const existedInCustomers = customers.some(c => {
+      const customerName = normalize(c.name);
+      const customerPhone = normalize(c.phone || '');
+      const inputName = normalize(safeName);
+      const inputPhone = normalize(safePhone);
+
+      if (inputPhone && customerPhone && inputPhone === customerPhone) return true;
+      return customerName === inputName && customerPhone === inputPhone;
+    });
+    if (existedInCustomers) return;
+
+    const list = this.getQuickCustomers();
+    const index = list.findIndex(c => normalize(c.name) === normalize(safeName) && normalize(c.phone || '') === normalize(safePhone));
+    if (index >= 0) {
+      const updated = list[index];
+      list.splice(index, 1);
+      list.unshift(updated);
+    } else {
+      list.unshift({ name: safeName, phone: safePhone });
+    }
+
+    this.save(BASE_KEYS.QUICK_CUSTOMERS, list.slice(0, 50));
+  }
+
+  deleteQuickCustomer(name: string, phone?: string) {
+    const normalize = (value: string) => (value || '').trim().toLowerCase();
+    const targetName = normalize(name || '');
+    const targetPhone = normalize(phone || '');
+    const list = this.getQuickCustomers();
+    const filtered = list.filter(c => !(normalize(c.name) === targetName && normalize(c.phone || '') === targetPhone));
+    this.save(BASE_KEYS.QUICK_CUSTOMERS, filtered);
+  }
+
+  saveQuickItem(name: string) {
+    const safeName = (name || '').trim();
+    if (!safeName) return;
+
+    const list = this.getQuickItems();
+    const filtered = list.filter(i => i.toLowerCase() !== safeName.toLowerCase());
+    this.save(BASE_KEYS.QUICK_ITEMS, [safeName, ...filtered].slice(0, 80));
   }
 
   deletePreOrder(id: string) {
