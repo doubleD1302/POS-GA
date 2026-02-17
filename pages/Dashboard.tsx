@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { db } from '../services/db';
 import { DashboardStats, PartnerType, PreOrder, Unit, PaymentMethod } from '../types';
-import { aiService } from '../services/ai';
+import { aiService, GeminiModel } from '../services/ai';
 import { formatCurrency, ICONS } from '../constants';
 import { StatCard, Button, Card, Input, Select, Modal } from '../components/ui';
 
@@ -35,6 +35,8 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
   const [aiMessages, setAiMessages] = useState<Array<{ role: 'user' | 'ai'; text: string }>>([
     { role: 'ai', text: 'Xin chào! Mình có thể gợi ý giá bán, phát hiện nhập liệu bất thường và trả lời nhanh theo dữ liệu nội bộ.' }
   ]);
+  const [isAskingAi, setIsAskingAi] = useState(false);
+  const [aiModel, setAiModel] = useState<GeminiModel>('gemini-2.5-flash');
   const [forecastDays, setForecastDays] = useState<7 | 30>(7);
 
   const customerOptions = db.getPartners(PartnerType.CUSTOMER);
@@ -60,6 +62,7 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
   ]));
   const priceSuggestions = aiService.suggestSellingPrices().slice(0, 4);
   const cashflowForecast = aiService.forecastCashflow(forecastDays);
+  const geminiModels = aiService.getGeminiModels();
 
   const refreshStats = () => {
     const data = db.getDashboardStats();
@@ -312,12 +315,26 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
     setAiMessages(prev => [...prev, { role: 'user', text: question }, { role: 'ai', text: answer }]);
   };
 
-  const handleAskAI = () => {
-    if (!aiQuestion.trim()) return;
+  const handleAskAI = async () => {
+    if (!aiQuestion.trim() || isAskingAi) return;
     const question = aiQuestion.trim();
-    const answer = aiService.answerInternalQuestion(question);
-    pushAiMessage(question, answer);
+    const history = [...aiMessages, { role: 'user' as const, text: question }];
+    setAiMessages(prev => [...prev, { role: 'user', text: question }]);
     setAiQuestion('');
+
+    setIsAskingAi(true);
+    try {
+      const result = await aiService.askGemini(question, aiModel, history);
+      setAiMessages(prev => [...prev, { role: 'ai', text: result.answer }]);
+      if (result.switchedModel && result.usedModel !== aiModel) {
+        setAiModel(result.usedModel);
+        setAiMessages(prev => [...prev, { role: 'ai', text: `Mình đã tự chuyển sang model ${result.usedModel} vì model trước bị giới hạn quota/token.` }]);
+      }
+    } catch (_e: any) {
+      setAiMessages(prev => [...prev, { role: 'ai', text: aiService.answerInternalQuestion(question) }]);
+    } finally {
+      setIsAskingAi(false);
+    }
   };
 
   const handleAiShortcut = (shortcut: 'PRICE' | 'ANOMALY' | 'FORECAST_7' | 'FORECAST_30') => {
@@ -443,6 +460,17 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
         )}
       </Card>
 
+      <Card title="Phím tắt">
+        <div className="grid grid-cols-2 gap-3">
+          <Button onClick={() => navigate('pos')} variant="primary" className="flex justify-center items-center gap-2">
+            <ICONS.Plus /> Bán Hàng
+          </Button>
+          <Button onClick={() => navigate('import')} variant="secondary" className="flex justify-center items-center gap-2">
+            <ICONS.Inventory /> Nhập Hàng
+          </Button>
+        </div>
+      </Card>
+
       <div className="mb-2">
         <div className="flex justify-between items-center mb-2">
           <h3 className="font-bold text-gray-700">Đơn đặt hàng</h3>
@@ -491,17 +519,6 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
           )}
         </div>
       </div>
-
-      <Card title="Phím tắt">
-        <div className="grid grid-cols-2 gap-3">
-          <Button onClick={() => navigate('pos')} variant="primary" className="flex justify-center items-center gap-2">
-            <ICONS.Plus /> Bán Hàng
-          </Button>
-          <Button onClick={() => navigate('import')} variant="secondary" className="flex justify-center items-center gap-2">
-            <ICONS.Inventory /> Nhập Hàng
-          </Button>
-        </div>
-      </Card>
 
       <Modal isOpen={isOrderModalOpen} onClose={() => setIsOrderModalOpen(false)} title={selectedOrder ? 'Chi tiết đặt hàng' : 'Thêm đơn đặt hàng'}>
         <div className="space-y-4">
@@ -606,7 +623,16 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
           <div className="mb-3 w-[320px] max-w-[calc(100vw-2rem)] bg-white border border-gray-200 rounded-2xl shadow-xl overflow-hidden">
             <div className="px-3 py-2 bg-brand-600 text-white flex items-center justify-between">
               <div className="text-sm font-bold">AI hỗ trợ</div>
-              <button onClick={() => setIsAiChatOpen(false)} className="text-xs bg-white/20 px-2 py-1 rounded">Đóng</button>
+              <div className="flex items-center gap-2">
+                <select
+                  value={aiModel}
+                  onChange={(e: any) => setAiModel(e.target.value as GeminiModel)}
+                  className="text-[11px] bg-white text-gray-700 rounded px-1.5 py-1 max-w-[125px]"
+                >
+                  {geminiModels.map(model => <option key={model} value={model}>{model}</option>)}
+                </select>
+                <button onClick={() => setIsAiChatOpen(false)} className="text-xs bg-white/20 px-2 py-1 rounded">Đóng</button>
+              </div>
             </div>
 
             <div className="p-3 border-b border-gray-100">
@@ -631,11 +657,16 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
                   {message.text}
                 </div>
               ))}
+              {isAskingAi && (
+                <div className="text-xs rounded-lg px-3 py-2 whitespace-pre-line bg-white border border-gray-200 text-gray-500 mr-8">
+                  Đang phân tích với {aiModel}...
+                </div>
+              )}
             </div>
 
             <div className="p-3 border-t border-gray-100 flex gap-2">
               <Input className="flex-1" placeholder="Ví dụ: Hôm nay lãi/lỗ vì sao?" value={aiQuestion} onChange={(e: any) => setAiQuestion(e.target.value)} />
-              <Button onClick={handleAskAI}>Gửi</Button>
+              <Button onClick={handleAskAI} disabled={isAskingAi}>{isAskingAi ? 'Đang gửi...' : 'Gửi'}</Button>
             </div>
           </div>
         )}

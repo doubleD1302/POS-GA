@@ -2,6 +2,14 @@ import { db } from './db';
 import { PartnerType, PaymentMethod, TransactionType } from '../types';
 import { formatCurrency } from '../constants';
 
+export const GEMINI_MODELS = [
+  'gemini-2.5-flash',
+  'gemini-2.5-pro',
+  'gemini-1.5-flash',
+] as const;
+
+export type GeminiModel = typeof GEMINI_MODELS[number];
+
 export type PriceSuggestion = {
   productId: string;
   productName: string;
@@ -24,9 +32,174 @@ export type InputIssue = {
   message: string;
 };
 
+export type ChatMessage = {
+  role: 'user' | 'ai';
+  text: string;
+};
+
+export type AskGeminiResult = {
+  answer: string;
+  usedModel: GeminiModel;
+  switchedModel: boolean;
+};
+
 const roundToThousand = (value: number) => Math.max(0, Math.round(value / 1000) * 1000);
 
+const safeNumber = (value: any) => Number(value || 0);
+
+const buildBusinessContext = () => {
+  const stats = db.getDashboardStats();
+  const products = db.getProducts();
+  const preOrders = db.getPreOrders().filter(o => o.status !== 'DONE');
+  const invoices = db.getInvoices().slice(0, 40);
+  const txns = db.getCashTransactions().slice(0, 80);
+
+  const productSnapshot = products.slice(0, 20).map(p => ({
+    name: p.name,
+    priceMale: safeNumber(p.priceMale),
+    costMale: safeNumber(p.costMale),
+    costFemale: safeNumber(p.costFemale),
+  }));
+
+  const invoiceSnapshot = invoices.map(inv => ({
+    date: inv.date,
+    type: inv.type,
+    total: safeNumber(inv.totalAmount),
+    paidAmount: safeNumber(inv.paidAmount),
+    customer: inv.partnerName,
+    lineCount: (inv.lines || []).length,
+  }));
+
+  const txnSnapshot = txns.map(t => ({
+    date: t.date,
+    type: t.type,
+    amount: safeNumber(t.amount),
+    category: t.type,
+    desc: t.description,
+  }));
+
+  const preOrderSnapshot = preOrders.map(o => ({
+    customerName: o.customerName,
+    phone: o.phone,
+    productNote: o.productNote,
+    qtyCon: safeNumber(o.qtyCon),
+    qtyKg: safeNumber(o.qtyKg),
+    unitPrice: safeNumber(o.unitPrice),
+    status: o.status,
+    deliveryTime: o.deliveryTime,
+  }));
+
+  return {
+    now: new Date().toISOString(),
+    stats,
+    productSnapshot,
+    invoiceSnapshot,
+    txnSnapshot,
+    preOrderSnapshot,
+  };
+};
+
+const getGeminiApiKey = () => {
+  const viteKey = (import.meta as any)?.env?.VITE_GEMINI_API_KEY;
+  const rawKey = (import.meta as any)?.env?.GEMINI_API_KEY;
+  return (viteKey || rawKey || '').trim();
+};
+
+const isTokenOrQuotaError = (status: number, message: string) => {
+  const m = (message || '').toLowerCase();
+  return status === 429 || m.includes('quota') || m.includes('resource_exhausted') || m.includes('token');
+};
+
 export const aiService = {
+  getGeminiModels(): GeminiModel[] {
+    return [...GEMINI_MODELS];
+  },
+
+  async askGemini(question: string, selectedModel: GeminiModel, history: ChatMessage[] = []): Promise<AskGeminiResult> {
+    const apiKey = getGeminiApiKey();
+    if (!apiKey) {
+      return {
+        answer: 'Chưa cấu hình GEMINI_API_KEY. Mình tạm trả lời theo dữ liệu nội bộ: ' + this.answerInternalQuestion(question),
+        usedModel: selectedModel,
+        switchedModel: false,
+      };
+    }
+
+    const models = this.getGeminiModels();
+    const startIndex = Math.max(0, models.indexOf(selectedModel));
+    const modelQueue = [...models.slice(startIndex), ...models.slice(0, startIndex)];
+
+    const context = buildBusinessContext();
+    const recentHistory = history.slice(-6);
+    const systemPrompt = [
+      'Bạn là trợ lý vận hành cho cửa hàng gà thịt.',
+      'Trả lời ngắn gọn, chính xác, bằng tiếng Việt.',
+      'Phải dựa trên BUSINESS_DATA, không bịa số liệu.',
+      'Nếu dữ liệu không đủ thì nêu rõ thiếu dữ liệu nào.',
+      'Ưu tiên gợi ý hành động thực tế cho chủ cửa hàng.'
+    ].join('\n');
+
+    const userPrompt = JSON.stringify({
+      task: question,
+      chat_history: recentHistory,
+      BUSINESS_DATA: context,
+    });
+
+    for (let idx = 0; idx < modelQueue.length; idx++) {
+      const model = modelQueue[idx];
+      try {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }] }],
+            generationConfig: {
+              temperature: 0.2,
+              maxOutputTokens: 700,
+            },
+          }),
+        });
+
+        if (!res.ok) {
+          const errorText = await res.text();
+          if (isTokenOrQuotaError(res.status, errorText) && idx < modelQueue.length - 1) {
+            continue;
+          }
+          throw new Error(errorText || `Gemini error ${res.status}`);
+        }
+
+        const data = await res.json();
+        const answer = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+        if (!answer) {
+          throw new Error('Gemini không trả về nội dung.');
+        }
+
+        return {
+          answer,
+          usedModel: model,
+          switchedModel: model !== selectedModel,
+        };
+      } catch (error: any) {
+        const message = String(error?.message || error || '');
+        if (isTokenOrQuotaError(429, message) && idx < modelQueue.length - 1) {
+          continue;
+        }
+
+        return {
+          answer: `Gemini tạm lỗi, mình chuyển sang trả lời nội bộ: ${this.answerInternalQuestion(question)}`,
+          usedModel: selectedModel,
+          switchedModel: false,
+        };
+      }
+    }
+
+    return {
+      answer: `Model đang hết quota/token, mình tạm trả lời nội bộ: ${this.answerInternalQuestion(question)}`,
+      usedModel: selectedModel,
+      switchedModel: false,
+    };
+  },
+
   suggestSellingPrices(): PriceSuggestion[] {
     const products = db.getProducts();
     const invoices = db.getInvoices().filter(i => i.type === 'EXPORT');
