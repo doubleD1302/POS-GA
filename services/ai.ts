@@ -102,7 +102,9 @@ const buildBusinessContext = () => {
 const getGeminiApiKey = () => {
   const viteKey = (import.meta as any)?.env?.VITE_GEMINI_API_KEY;
   const rawKey = (import.meta as any)?.env?.GEMINI_API_KEY;
-  return (viteKey || rawKey || '').trim();
+  const processViteKey = (process as any)?.env?.VITE_GEMINI_API_KEY;
+  const processRawKey = (process as any)?.env?.GEMINI_API_KEY || (process as any)?.env?.API_KEY;
+  return (viteKey || rawKey || processViteKey || processRawKey || '').trim();
 };
 
 const isTokenOrQuotaError = (status: number, message: string) => {
