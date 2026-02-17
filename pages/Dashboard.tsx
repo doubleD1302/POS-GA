@@ -117,7 +117,7 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
             </div>
             <div className="grid grid-cols-2 gap-3">
               <StatCard label="Khách nợ (Phải thu)" value={formatCurrency(stats.receivables)} color="text-orange-500" />
-              <StatCard label="Vốn nhập gà (Tổng)" value={formatCurrency(stats.importCapital)} color="text-blue-600" subtext="Tổng vốn đã bỏ ra" />
+              <StatCard label="Tổng chi" value={formatCurrency(stats.totalExpenseToday)} color="text-red-600" subtext="Nhập gà + chi phí khác (hôm nay)" />
             </div>
           </div>
         )}
