@@ -669,6 +669,8 @@ function CashbookPage() {
   const [poKg, setPoKg] = useState('');
   const [poTime, setPoTime] = useState('');
   const [poNote, setPoNote] = useState('');
+  const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
+  const [isSummaryUnlocked, setIsSummaryUnlocked] = useState(false);
 
   // State Modal Báo cáo
   const [isReportOpen, setIsReportOpen] = useState(false);
@@ -790,6 +792,35 @@ function CashbookPage() {
   const getTitle = () => {
     if (viewMode === 'MONTH') return `Tháng ${targetDate.getMonth() + 1} / ${targetDate.getFullYear()}`;
     return `Năm ${targetDate.getFullYear()}`;
+  };
+
+  const handleSummarySecurityToggle = () => {
+    if (isSummaryUnlocked) {
+      setIsSummaryUnlocked(false);
+      setIsSummaryExpanded(false);
+      return;
+    }
+
+    const currentCode = localStorage.getItem('gttd_current_business_id');
+    const inputCode = window.prompt('🔒 Nhập Mã Doanh Nghiệp để mở bảng chỉ số Sổ quỹ:');
+
+    if (inputCode === currentCode) {
+      setIsSummaryUnlocked(true);
+      setIsSummaryExpanded(true);
+      return;
+    }
+
+    if (inputCode !== null) {
+      alert('❌ Mã không đúng. Không thể hiển thị chỉ số.');
+    }
+  };
+
+  const handleSummaryMenuClick = () => {
+    if (!isSummaryUnlocked) {
+      handleSummarySecurityToggle();
+      return;
+    }
+    setIsSummaryExpanded(prev => !prev);
   };
 
   // --- REPORT GENERATION ---
@@ -942,27 +973,47 @@ function CashbookPage() {
         </div>
       </Card>
 
-      {/* 2. SUMMARY CARDS (ĐÃ CẬP NHẬT THEO BỘ LỌC) */}
-      <div className="grid grid-cols-2 gap-2 mb-4">
-          <div className="bg-white p-3 rounded-lg shadow-sm border border-gray-100">
-              <div className="text-xs text-gray-500 uppercase font-bold">TỔNG THU ({viewMode === 'MONTH' ? 'THÁNG' : 'NĂM'})</div>
-              <div className="text-lg font-bold text-green-600">{formatCurrency(periodIncome)}</div>
-          </div>
-          <div className="bg-white p-3 rounded-lg shadow-sm border border-gray-100">
-              <div className="text-xs text-gray-500 uppercase font-bold">TỔNG CHI ({viewMode === 'MONTH' ? 'THÁNG' : 'NĂM'})</div>
-              <div className="text-lg font-bold text-red-600">{formatCurrency(periodExpense)}</div>
-          </div>
-          <div className="bg-white p-3 rounded-lg shadow-sm border border-gray-100">
-              <div className="text-xs text-gray-500 uppercase font-bold">LỢI NHUẬN</div>
-              <div className={`text-lg font-bold ${periodBalance >= 0 ? 'text-blue-600' : 'text-orange-600'}`}>
-                {formatCurrency(periodBalance)}
+      <Card className="mb-4 p-0 overflow-hidden">
+        <div className="p-4 flex items-center justify-between gap-3">
+          <button onClick={handleSummaryMenuClick} className="flex-1 text-left hover:opacity-90 transition-opacity">
+            <h3 className="text-base font-bold text-gray-800">Chỉ số Sổ quỹ</h3>
+            <p className="text-xs text-gray-500 mt-1">
+              {!isSummaryUnlocked ? 'Nhấn để nhập mã và mở bảng chỉ số' : isSummaryExpanded ? 'Đang mở chi tiết. Nhấn lại để thu gọn.' : 'Đã mở khoá. Nhấn để xem lại chi tiết.'}
+            </p>
+          </button>
+          <button
+            onClick={handleSummarySecurityToggle}
+            className={`text-xs font-bold px-2 py-1 rounded border ${isSummaryUnlocked ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-100 text-gray-600 border-gray-200'}`}
+          >
+            {isSummaryUnlocked ? '🔓 Khoá lại' : '🔒 Mở khoá'}
+          </button>
+        </div>
+
+        {isSummaryExpanded && isSummaryUnlocked && (
+          <div className="border-t border-gray-100 p-3 bg-gray-50">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="bg-white p-3 rounded-lg shadow-sm border border-gray-100">
+                <div className="text-xs text-gray-500 uppercase font-bold">TỔNG THU ({viewMode === 'MONTH' ? 'THÁNG' : 'NĂM'})</div>
+                <div className="text-lg font-bold text-green-600">{formatCurrency(periodIncome)}</div>
               </div>
+              <div className="bg-white p-3 rounded-lg shadow-sm border border-gray-100">
+                <div className="text-xs text-gray-500 uppercase font-bold">TỔNG CHI ({viewMode === 'MONTH' ? 'THÁNG' : 'NĂM'})</div>
+                <div className="text-lg font-bold text-red-600">{formatCurrency(periodExpense)}</div>
+              </div>
+              <div className="bg-white p-3 rounded-lg shadow-sm border border-gray-100">
+                <div className="text-xs text-gray-500 uppercase font-bold">LỢI NHUẬN</div>
+                <div className={`text-lg font-bold ${periodBalance >= 0 ? 'text-blue-600' : 'text-orange-600'}`}>
+                  {formatCurrency(periodBalance)}
+                </div>
+              </div>
+              <div className="bg-orange-50 p-3 rounded-lg shadow-sm border border-orange-100">
+                <div className="text-xs text-orange-800 uppercase font-bold">KHÁCH NỢ (HIỆN TẠI)</div>
+                <div className="text-lg font-bold text-orange-600">{formatCurrency(totalReceivables)}</div>
+              </div>
+            </div>
           </div>
-           <div className="bg-orange-50 p-3 rounded-lg shadow-sm border border-orange-100">
-              <div className="text-xs text-orange-800 uppercase font-bold">KHÁCH NỢ (HIỆN TẠI)</div>
-              <div className="text-lg font-bold text-orange-600">{formatCurrency(totalReceivables)}</div>
-          </div>
-      </div>
+        )}
+      </Card>
 
       <Card title={`Biểu đồ ${viewMode === 'MONTH' ? 'Tháng' : 'Năm'}`} className="mb-4 h-64">
          <ResponsiveContainer width="100%" height="100%">
