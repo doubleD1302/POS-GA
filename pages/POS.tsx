@@ -188,9 +188,33 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
     const info = normalize(customerName).substring(0, 50); 
 
     const transferAmount = Math.max(0, Number(paidAmount) || Number(totalAmount) || 0);
-    if (transferAmount <= 0) return null;
+    const amountParam = transferAmount > 0 ? `amount=${transferAmount}&` : '';
+    return `https://img.vietqr.io/image/${bankId}-${accountNo}-${template}.png?${amountParam}addInfo=${encodeURIComponent(info)}`;
+  };
 
-    return `https://img.vietqr.io/image/${bankId}-${accountNo}-${template}.png?amount=${transferAmount}&addInfo=${encodeURIComponent(info)}`;
+  const handleOpenQrFullscreen = () => {
+    const qr = getQrLink();
+    if (!qr) return;
+    window.open(qr, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleDownloadQr = async () => {
+    const qr = getQrLink();
+    if (!qr) return;
+    try {
+      const response = await fetch(qr);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `vietqr-ban-hang-${Date.now()}.png`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (_e) {
+      window.open(qr, '_blank', 'noopener,noreferrer');
+    }
   };
 
   // Stock Helper
@@ -325,6 +349,10 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
                     <div className="mt-2 text-xs text-gray-600">
                       <div className="font-bold">{bankSettings.accountName}</div>
                       <div>{bankSettings.accountNo} - {bankSettings.bankId}</div>
+                    </div>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      <Button variant="secondary" onClick={handleDownloadQr} className="w-full">Tải QR</Button>
+                      <Button variant="secondary" onClick={handleOpenQrFullscreen} className="w-full">Mở QR toàn màn hình</Button>
                     </div>
                  </>
                ) : (

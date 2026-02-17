@@ -370,9 +370,32 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
     const customerName = poName || 'Khach hang';
     const template = bankSettings.template || 'compact';
     const transferAmount = Math.max(0, Number(deliveryPaidAmount) || Number(draftTotal) || 0);
-    if (transferAmount <= 0) return null;
     const info = normalize(customerName).substring(0, 50);
-    return `https://img.vietqr.io/image/${bankSettings.bankId}-${bankSettings.accountNo}-${template}.png?amount=${transferAmount}&addInfo=${encodeURIComponent(info)}`;
+    const amountParam = transferAmount > 0 ? `amount=${transferAmount}&` : '';
+    return `https://img.vietqr.io/image/${bankSettings.bankId}-${bankSettings.accountNo}-${template}.png?${amountParam}addInfo=${encodeURIComponent(info)}`;
+  };
+  const handleOpenDeliveryQrFullscreen = () => {
+    const qr = getDeliveryQrLink();
+    if (!qr) return;
+    window.open(qr, '_blank', 'noopener,noreferrer');
+  };
+  const handleDownloadDeliveryQr = async () => {
+    const qr = getDeliveryQrLink();
+    if (!qr) return;
+    try {
+      const response = await fetch(qr);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `vietqr-don-giao-${Date.now()}.png`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (_e) {
+      window.open(qr, '_blank', 'noopener,noreferrer');
+    }
   };
   const draftIssues = aiService.detectInputIssues({
     customerName: poName,
@@ -620,6 +643,10 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
                       <div className="mt-2 text-xs text-gray-600">
                         <div className="font-bold">{bankSettings.accountName}</div>
                         <div>{bankSettings.accountNo} - {bankSettings.bankId}</div>
+                      </div>
+                      <div className="mt-2 grid grid-cols-2 gap-2">
+                        <Button variant="secondary" onClick={handleDownloadDeliveryQr} className="w-full">Tải QR</Button>
+                        <Button variant="secondary" onClick={handleOpenDeliveryQrFullscreen} className="w-full">Mở QR toàn màn hình</Button>
                       </div>
                     </>
                   ) : (
