@@ -1071,6 +1071,12 @@ function CashbookPage() {
   }
   const formatTime = (isoString: string) => { try { const d = new Date(isoString); return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`; } catch(e) { return ''; } }
   const formatDateShort = (isoString: string) => { try { const d = new Date(isoString); return `${d.getDate()}/${d.getMonth()+1}`; } catch (e) { return ''; } }
+  const getPaymentMethodLabel = (method?: PaymentMethod) => {
+    if (method === PaymentMethod.CASH) return 'Tiền mặt';
+    if (method === PaymentMethod.TRANSFER) return 'Chuyển khoản';
+    if (method === PaymentMethod.DEBT) return 'Ghi nợ';
+    return 'Chưa xác định';
+  }
 
   return (
     <div className="pb-20">
@@ -1212,6 +1218,12 @@ function CashbookPage() {
                         <div className="text-xs text-gray-400 mt-1">{new Date(selectedTxn.date).toLocaleString('vi-VN')}</div>
                     </div>
                     <div className="text-sm text-gray-800 font-medium">{selectedTxn.description}</div>
+                    {selectedInvoice && selectedInvoice.type !== 'IMPORT' && (
+                      <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 text-sm">
+                        <span className="text-gray-500">Phương thức thanh toán:</span>{' '}
+                        <span className="font-bold text-blue-700">{getPaymentMethodLabel(selectedInvoice.paymentMethod)}</span>
+                      </div>
+                    )}
                     {selectedInvoice && (
                         selectedInvoice.type === 'IMPORT' ? (
                           <div className="bg-white rounded shadow border border-gray-200 overflow-hidden max-h-[60vh] overflow-y-auto">
