@@ -30,6 +30,7 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
   const [isAddCustModalOpen, setIsAddCustModalOpen] = useState(false);
   const [newCustName, setNewCustName] = useState('');
   const [newCustPhone, setNewCustPhone] = useState('');
+  const [isQrPreviewOpen, setIsQrPreviewOpen] = useState(false);
 
   useEffect(() => {
     setProducts(db.getProducts());
@@ -193,9 +194,8 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
   };
 
   const handleOpenQrFullscreen = () => {
-    const qr = getQrLink();
-    if (!qr) return;
-    window.open(qr, '_blank', 'noopener,noreferrer');
+    if (!qrLink) return;
+    setIsQrPreviewOpen(true);
   };
 
   const handleDownloadQr = async () => {
@@ -501,6 +501,23 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
             <Button className="w-full mt-2" onClick={addToCart}>Thêm vào giỏ</Button>
          </div>
       </Modal>
+
+      {isQrPreviewOpen && qrLink && (
+        <div className="fixed inset-0 z-[70] bg-black/85 flex flex-col">
+          <div className="flex items-center justify-between p-4 text-white">
+            <div className="font-bold">QR chuyển khoản</div>
+            <button
+              onClick={() => setIsQrPreviewOpen(false)}
+              className="px-3 py-1 rounded border border-white/40 text-sm"
+            >
+              Đóng
+            </button>
+          </div>
+          <div className="flex-1 flex items-center justify-center p-4">
+            <img src={qrLink} alt="VietQR fullscreen" className="max-h-full max-w-full object-contain bg-white rounded-lg p-2" />
+          </div>
+        </div>
+      )}
 
       {/* Add Customer Modal */}
       <Modal isOpen={isAddCustModalOpen} onClose={() => setIsAddCustModalOpen(false)} title="Thêm Khách Mới">

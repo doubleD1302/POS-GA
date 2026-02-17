@@ -30,6 +30,7 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
   const [showDeliveryPayment, setShowDeliveryPayment] = useState(false);
   const [deliveryPaymentMethod, setDeliveryPaymentMethod] = useState<PaymentMethod>(PaymentMethod.CASH);
   const [deliveryPaidAmount, setDeliveryPaidAmount] = useState(0);
+  const [isDeliveryQrPreviewOpen, setIsDeliveryQrPreviewOpen] = useState(false);
   const [isAiChatOpen, setIsAiChatOpen] = useState(false);
   const [aiQuestion, setAiQuestion] = useState('');
   const [aiMessages, setAiMessages] = useState<Array<{ role: 'user' | 'ai'; text: string }>>([
@@ -375,9 +376,8 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
     return `https://img.vietqr.io/image/${bankSettings.bankId}-${bankSettings.accountNo}-${template}.png?${amountParam}addInfo=${encodeURIComponent(info)}`;
   };
   const handleOpenDeliveryQrFullscreen = () => {
-    const qr = getDeliveryQrLink();
-    if (!qr) return;
-    window.open(qr, '_blank', 'noopener,noreferrer');
+    if (!deliveryQrLink) return;
+    setIsDeliveryQrPreviewOpen(true);
   };
   const handleDownloadDeliveryQr = async () => {
     const qr = getDeliveryQrLink();
@@ -689,6 +689,23 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
           </div>
         </div>
       </Modal>
+
+      {isDeliveryQrPreviewOpen && deliveryQrLink && (
+        <div className="fixed inset-0 z-[70] bg-black/85 flex flex-col">
+          <div className="flex items-center justify-between p-4 text-white">
+            <div className="font-bold">QR chuyển khoản giao hàng</div>
+            <button
+              onClick={() => setIsDeliveryQrPreviewOpen(false)}
+              className="px-3 py-1 rounded border border-white/40 text-sm"
+            >
+              Đóng
+            </button>
+          </div>
+          <div className="flex-1 flex items-center justify-center p-4">
+            <img src={deliveryQrLink} alt="VietQR delivery fullscreen" className="max-h-full max-w-full object-contain bg-white rounded-lg p-2" />
+          </div>
+        </div>
+      )}
 
       <div className="fixed right-4 bottom-24 z-40">
         {isAiChatOpen && (
