@@ -51,6 +51,12 @@ export type AskGeminiResult = {
   reason?: string;
 };
 
+export type GeminiHealthResult = {
+  ok: boolean;
+  model: GeminiModel;
+  message: string;
+};
+
 const roundToThousand = (value: number) => Math.max(0, Math.round(value / 1000) * 1000);
 
 const safeNumber = (value: any) => Number(value || 0);
@@ -148,6 +154,71 @@ const summarizeFallbackReason = (message: string) => {
 export const aiService = {
   getGeminiModels(): GeminiModel[] {
     return [...GEMINI_MODELS];
+  },
+
+  async checkGeminiConnection(selectedModel: GeminiModel): Promise<GeminiHealthResult> {
+    const apiKey = getGeminiApiKey();
+    if (!apiKey) {
+      return {
+        ok: false,
+        model: selectedModel,
+        message: 'Thiếu GEMINI_API_KEY trong môi trường chạy app.',
+      };
+    }
+
+    const models = this.getGeminiModels();
+    const startIndex = Math.max(0, models.indexOf(selectedModel));
+    const modelQueue = [...models.slice(startIndex), ...models.slice(0, startIndex)];
+
+    for (let idx = 0; idx < modelQueue.length; idx++) {
+      const model = modelQueue[idx];
+      try {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: 'Trả lời đúng 1 từ: OK' }] }],
+            generationConfig: { temperature: 0, maxOutputTokens: 8 },
+          }),
+        });
+
+        if (!res.ok) {
+          const errorText = await res.text();
+          if (isRecoverableModelError(res.status, errorText) && idx < modelQueue.length - 1) {
+            continue;
+          }
+          return {
+            ok: false,
+            model,
+            message: `Kết nối thất bại (${res.status}): ${summarizeFallbackReason(errorText)}`,
+          };
+        }
+
+        return {
+          ok: true,
+          model,
+          message: model === selectedModel
+            ? `Kết nối Gemini OK với model ${model}.`
+            : `Kết nối Gemini OK. Đã tự dùng model ${model} do model chọn không khả dụng.`,
+        };
+      } catch (error: any) {
+        const message = String(error?.message || error || '');
+        if (isRecoverableModelError(400, message) && idx < modelQueue.length - 1) {
+          continue;
+        }
+        return {
+          ok: false,
+          model,
+          message: `Kết nối thất bại: ${summarizeFallbackReason(message)}`,
+        };
+      }
+    }
+
+    return {
+      ok: false,
+      model: selectedModel,
+      message: 'Không có model Gemini khả dụng với API key hiện tại.',
+    };
   },
 
   async askGemini(question: string, selectedModel: GeminiModel, history: ChatMessage[] = []): Promise<AskGeminiResult> {

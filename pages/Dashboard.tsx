@@ -366,6 +366,28 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
     pushAiMessage(`Dự báo dòng tiền ${days} ngày`, answer);
   };
 
+  const handleCheckGemini = async () => {
+    if (isAskingAi) return;
+    setIsAskingAi(true);
+    try {
+      const result = await aiService.checkGeminiConnection(aiModel);
+      setAiMessages(prev => [...prev, {
+        role: 'ai',
+        text: `${result.ok ? '✅' : '❌'} ${result.message}`,
+      }]);
+      if (result.ok && result.model !== aiModel) {
+        setAiModel(result.model);
+      }
+    } catch (_e: any) {
+      setAiMessages(prev => [...prev, {
+        role: 'ai',
+        text: '❌ Không thể kiểm tra kết nối Gemini lúc này. Vui lòng thử lại sau.',
+      }]);
+    } finally {
+      setIsAskingAi(false);
+    }
+  };
+
   const formatTime = (isoString: string) => { try { const d = new Date(isoString); return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`; } catch (e) { return ''; } }
   const formatDateShort = (isoString: string) => { try { const d = new Date(isoString); return `${d.getDate()}/${d.getMonth() + 1}`; } catch (e) { return ''; } }
   const getDeliveryQrLink = () => {
@@ -734,6 +756,7 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
                 <button onClick={() => handleAiShortcut('ANOMALY')} className="text-xs px-2 py-1 rounded-full border border-gray-300 bg-gray-50 text-gray-700">Bất thường</button>
                 <button onClick={() => { setForecastDays(7); handleAiShortcut('FORECAST_7'); }} className="text-xs px-2 py-1 rounded-full border border-gray-300 bg-gray-50 text-gray-700">Dự báo 7 ngày</button>
                 <button onClick={() => { setForecastDays(30); handleAiShortcut('FORECAST_30'); }} className="text-xs px-2 py-1 rounded-full border border-gray-300 bg-gray-50 text-gray-700">Dự báo 30 ngày</button>
+                <button onClick={handleCheckGemini} className="text-xs px-2 py-1 rounded-full border border-blue-300 bg-blue-50 text-blue-700">Kiểm tra kết nối Gemini</button>
               </div>
               <div className="mt-2 text-[11px] text-gray-500">
                 Thu/Chi {forecastDays} ngày: <span className="font-bold text-green-700">{formatCurrency(cashflowForecast.expectedIn)}</span> / <span className="font-bold text-red-700">{formatCurrency(cashflowForecast.expectedOut)}</span>
