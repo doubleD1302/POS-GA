@@ -118,6 +118,8 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
       pid: string;
       pName: string;
       gender: Gender;
+      rawKg: number;
+      debtDeductKg: number;
       kg: number;
       con: number;
       price: number;
@@ -278,17 +280,22 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
     }
 
     const prod = products.find(p => p.id === currentPid);
+    const debtDeductKg = itemKg > 0 ? itemKg * 0.02 : 0;
+    const finalImportedKg = itemKg - debtDeductKg;
+
     const newItem = {
       pid: currentPid,
       pName: `${prod ? prod.name : 'Unknown'} (${gender === 'MALE' ? 'Trống' : 'Mái'})`,
       gender,
-      kg: itemKg,
+      rawKg: itemKg,
+      debtDeductKg,
+      kg: finalImportedKg,
       con: itemCon,
       price: priceNum,
-      total: itemKg * priceNum,
+      total: finalImportedKg * priceNum,
       gross: itemGross,
       tare: itemTare,
-      details: detailsStr,
+      details: `${detailsStr} | trừ no 2%: -${debtDeductKg.toFixed(2)}kg | nhập kho: ${finalImportedKg.toFixed(2)}kg`,
     };
 
     const newItemKey = `${keyWithoutPrice}|${priceNum}`;
@@ -303,6 +310,8 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
 
       updatedItems[updatedItems.length - 1] = {
         ...existing,
+        rawKg: existing.rawKg + newItem.rawKg,
+        debtDeductKg: existing.debtDeductKg + newItem.debtDeductKg,
         kg: mergedKg,
         con: existing.con + newItem.con,
         total: existing.total + newItem.total,
@@ -575,7 +584,9 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
                   <div>Tổng cân: <span className="font-bold text-gray-800">{item.gross.toFixed(2)} kg</span></div>
                   <div>Trừ bì: <span className="font-bold text-red-600">-{item.tare.toFixed(2)} kg</span></div>
                   <div className="col-span-2 border-b border-gray-100 my-1"></div>
-                  <div>Thực nhập: <span className="font-bold text-blue-600">{item.kg.toFixed(2)} kg</span></div>
+                  <div>Thực nhập (sau bì): <span className="font-bold text-blue-600">{item.rawKg.toFixed(2)} kg</span></div>
+                  <div>Trừ no 2%: <span className="font-bold text-red-600">-{item.debtDeductKg.toFixed(2)} kg</span></div>
+                  <div className="col-span-2">Thực nhập kho: <span className="font-bold text-emerald-600">{item.kg.toFixed(2)} kg</span></div>
                   <div>Số lượng: <span className="font-bold text-blue-600">{item.con} con</span></div>
                   <div className="col-span-2 text-xs italic text-gray-400 mt-1">Chi tiết: {item.details}</div>
                   <div className="col-span-2 border-t border-gray-200 mt-2 pt-2 flex justify-between items-center">
@@ -593,7 +604,15 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
               <span>{ticketItems.reduce((a, b) => a + b.tare, 0).toFixed(2)} kg</span>
             </div>
             <div className="flex justify-between items-center text-sm mb-3">
-              <span className="text-gray-300">Tổng thực nhập:</span>
+              <span className="text-gray-300">Tổng thực nhập (sau bì):</span>
+              <span>{ticketItems.reduce((a, b) => a + b.rawKg, 0).toFixed(2)} kg</span>
+            </div>
+            <div className="flex justify-between items-center text-sm mb-3">
+              <span className="text-gray-300">Tổng trừ no 2%:</span>
+              <span>-{ticketItems.reduce((a, b) => a + b.debtDeductKg, 0).toFixed(2)} kg</span>
+            </div>
+            <div className="flex justify-between items-center text-sm mb-3">
+              <span className="text-gray-300">Tổng nhập kho:</span>
               <span>{ticketItems.reduce((a, b) => a + b.kg, 0).toFixed(2)} kg</span>
             </div>
             <div className="border-t border-gray-600 pt-3 flex justify-between items-center">
