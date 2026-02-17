@@ -328,6 +328,9 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
     try {
       const result = await aiService.askGemini(question, aiModel, history);
       setAiMessages(prev => [...prev, { role: 'ai', text: result.answer }]);
+      if (result.source === 'fallback') {
+        setAiMessages(prev => [...prev, { role: 'ai', text: `⚠️ Đang dùng phản hồi nội bộ do: ${result.reason || 'Lỗi Gemini tạm thời'}.` }]);
+      }
       if (result.switchedModel && result.usedModel !== aiModel) {
         setAiModel(result.usedModel);
         setAiMessages(prev => [...prev, { role: 'ai', text: `Mình đã tự chuyển sang model ${result.usedModel} vì model trước bị giới hạn quota/token.` }]);

@@ -47,6 +47,8 @@ export type AskGeminiResult = {
   answer: string;
   usedModel: GeminiModel;
   switchedModel: boolean;
+  source: 'gemini' | 'fallback';
+  reason?: string;
 };
 
 const roundToThousand = (value: number) => Math.max(0, Math.round(value / 1000) * 1000);
@@ -134,6 +136,15 @@ const isRecoverableModelError = (status: number, message: string) => {
   );
 };
 
+const summarizeFallbackReason = (message: string) => {
+  const m = (message || '').toLowerCase();
+  if (m.includes('quota') || m.includes('resource_exhausted') || m.includes('429')) return 'Hết quota hoặc giới hạn token';
+  if (m.includes('permission') || m.includes('403')) return 'API key hoặc quyền truy cập model chưa phù hợp';
+  if (m.includes('not found') || m.includes('404') || m.includes('unsupported')) return 'Model không khả dụng cho key hiện tại';
+  if (m.includes('failed to fetch') || m.includes('network') || m.includes('cors')) return 'Mất kết nối mạng hoặc bị chặn truy cập Gemini';
+  return 'Lỗi tạm thời từ Gemini API';
+};
+
 export const aiService = {
   getGeminiModels(): GeminiModel[] {
     return [...GEMINI_MODELS];
@@ -146,6 +157,8 @@ export const aiService = {
         answer: 'Chưa cấu hình GEMINI_API_KEY. Mình tạm trả lời theo dữ liệu nội bộ: ' + this.answerInternalQuestion(question),
         usedModel: selectedModel,
         switchedModel: false,
+        source: 'fallback',
+        reason: 'Thiếu GEMINI_API_KEY',
       };
     }
 
@@ -180,7 +193,8 @@ export const aiService = {
             body: JSON.stringify({
               contents: [{ role: 'user', parts: [{ text: promptText }] }],
               generationConfig: {
-                temperature: 0.2,
+                temperature: 0.55,
+                topP: 0.95,
                 maxOutputTokens: 8192,
               },
             }),
@@ -226,6 +240,7 @@ export const aiService = {
           answer,
           usedModel: model,
           switchedModel: model !== selectedModel,
+          source: 'gemini',
         };
       } catch (error: any) {
         const message = String(error?.message || error || '');
@@ -233,10 +248,13 @@ export const aiService = {
           continue;
         }
 
+        const reason = summarizeFallbackReason(message);
         return {
-          answer: `Gemini tạm lỗi, mình chuyển sang trả lời nội bộ: ${this.answerInternalQuestion(question)}`,
+          answer: `Gemini tạm lỗi (${reason}), mình chuyển sang trả lời nội bộ:\n${this.answerInternalQuestion(question)}`,
           usedModel: selectedModel,
           switchedModel: false,
+          source: 'fallback',
+          reason,
         };
       }
     }
@@ -245,6 +263,8 @@ export const aiService = {
       answer: `Model đang hết quota/token, mình tạm trả lời nội bộ: ${this.answerInternalQuestion(question)}`,
       usedModel: selectedModel,
       switchedModel: false,
+      source: 'fallback',
+      reason: 'Hết quota hoặc giới hạn token',
     };
   },
 
