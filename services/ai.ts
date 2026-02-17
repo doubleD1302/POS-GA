@@ -257,7 +257,7 @@ export const aiService = {
     const systemPrompt = [
       'Bạn là trợ lý vận hành cho cửa hàng gà thịt.',
       'Trả lời bằng tiếng Việt, đúng trọng tâm, ngắn gọn, dễ hiểu.',
-      'Mặc định tối đa 3-5 câu, trừ khi người dùng yêu cầu giải thích sâu.',
+      'Trả lời đầy đủ ý nhưng cô đọng (ưu tiên 4-8 câu hoặc 3-6 gạch đầu dòng ngắn).',
       'Phải dựa trên BUSINESS_DATA, không bịa số liệu.',
       'Nếu dữ liệu không đủ thì nêu rõ thiếu dữ liệu nào.',
       'Ưu tiên gợi ý hành động thực tế cho chủ cửa hàng.',
@@ -282,7 +282,7 @@ export const aiService = {
               generationConfig: {
                 temperature: 0.25,
                 topP: 0.85,
-                maxOutputTokens: 1024,
+                maxOutputTokens: 1536,
               },
             }),
           });
@@ -295,7 +295,8 @@ export const aiService = {
           const data = await res.json();
           const candidate = data?.candidates?.[0];
           const text = candidate?.content?.parts?.[0]?.text?.trim() || '';
-          return { text };
+          const finishReason = String(candidate?.finishReason || '').toUpperCase();
+          return { text, finishReason };
         };
 
         const first = await runGenerate(`${systemPrompt}\n\n${userPrompt}`);
@@ -303,8 +304,23 @@ export const aiService = {
           throw new Error('Gemini không trả về nội dung.');
         }
 
+        let finalAnswer = first.text;
+        if (first.finishReason === 'MAX_TOKENS' || first.finishReason === 'LENGTH') {
+          const continued = await runGenerate([
+            systemPrompt,
+            'Bạn vừa bị cắt do giới hạn độ dài.',
+            'Hãy viết tiếp phần còn thiếu thật ngắn gọn, không lặp lại nội dung đã viết.',
+            `Câu hỏi: ${question}`,
+            `Đoạn đã có: ${first.text}`,
+          ].join('\n\n'));
+
+          if (continued.text) {
+            finalAnswer = `${first.text}\n${continued.text}`;
+          }
+        }
+
         return {
-          answer: first.text,
+          answer: finalAnswer,
           usedModel: model,
           switchedModel: model !== selectedModel,
           source: 'gemini',
