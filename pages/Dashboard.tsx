@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { db } from '../services/db';
 import { DashboardStats, PartnerType, PreOrder, Unit, PaymentMethod, BankSettings } from '../types';
 import { aiService, GeminiModel } from '../services/ai';
@@ -40,6 +40,7 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
   const [aiModel, setAiModel] = useState<GeminiModel>('gemini-2.5-flash');
   const [isAwaitingApiKeyInput, setIsAwaitingApiKeyInput] = useState(false);
   const [forecastDays, setForecastDays] = useState<7 | 30>(7);
+  const aiMessagesRef = useRef<HTMLDivElement | null>(null);
 
   const customerOptions = db.getPartners(PartnerType.CUSTOMER);
   const normalizeValue = (value: string) => (value || '').trim().toLowerCase();
@@ -81,6 +82,13 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
     reloadPreOrders();
     setQuickCustomerOptions(db.getQuickCustomers());
   }, []);
+
+  useEffect(() => {
+    if (!isAiChatOpen) return;
+    const container = aiMessagesRef.current;
+    if (!container) return;
+    container.scrollTop = container.scrollHeight;
+  }, [aiMessages, isAskingAi, isAiChatOpen]);
 
   if (!stats) return <div className="p-4">Đang tải...</div>;
 
@@ -356,7 +364,16 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
           role: 'ai',
           text: '✅ Đã lưu API key mặc định cho tài khoản này trên Supabase.'
         }]);
+      } catch (_e: any) {
+        setAiMessages(prev => [...prev, {
+          role: 'ai',
+          text: '❌ Không thể lưu API key lúc này. Vui lòng kiểm tra kết nối và thử lại.'
+        }]);
+        setIsAskingAi(false);
+        return;
+      }
 
+      try {
         const check = await aiService.checkGeminiConnection(aiModel);
         setAiMessages(prev => [...prev, {
           role: 'ai',
@@ -368,7 +385,7 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
       } catch (_e: any) {
         setAiMessages(prev => [...prev, {
           role: 'ai',
-          text: '❌ Không thể lưu API key lúc này. Vui lòng kiểm tra kết nối và thử lại.'
+          text: '⚠️ Đã lưu API key nhưng chưa thể kiểm tra kết nối Gemini ngay lúc này.'
         }]);
       } finally {
         setIsAskingAi(false);
@@ -821,7 +838,7 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
               </div>
             </div>
 
-            <div className="max-h-56 overflow-y-auto p-3 space-y-2 bg-gray-50">
+            <div ref={aiMessagesRef} className="max-h-56 overflow-y-auto p-3 space-y-2 bg-gray-50">
               {aiMessages.map((message, idx) => (
                 <div
                   key={idx}
