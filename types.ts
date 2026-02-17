@@ -133,9 +133,10 @@ export interface PreOrder {
   productNote: string; // e.g. "Gà mái tơ"
   qtyCon?: number;
   qtyKg?: number;
+  unitPrice?: number;
   deliveryTime: string; // ISO string
   note?: string;
-  status: 'PENDING' | 'DONE';
+  status: 'PENDING' | 'PREPARED' | 'DONE';
 }
 
 export type Gender = 'MALE' | 'FEMALE';

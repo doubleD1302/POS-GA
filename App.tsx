@@ -658,6 +658,7 @@ function CashbookPage() {
   const [accName, setAccName] = useState('');
   const [lookupName, setLookupName] = useState('');
   const [preOrders, setPreOrders] = useState<PreOrder[]>([]);
+  const [orderView, setOrderView] = useState<'PENDING' | 'PREPARED'>('PENDING');
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<PreOrder | null>(null);
   
@@ -667,10 +668,25 @@ function CashbookPage() {
   const [poProduct, setPoProduct] = useState('');
   const [poCon, setPoCon] = useState('');
   const [poKg, setPoKg] = useState('');
+  const [poPrice, setPoPrice] = useState('');
   const [poTime, setPoTime] = useState('');
   const [poNote, setPoNote] = useState('');
   const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
   const [isSummaryUnlocked, setIsSummaryUnlocked] = useState(false);
+
+  const customerOptions = db.getPartners(PartnerType.CUSTOMER);
+  const productOptions = db.getProducts();
+  const manualGoodsOptions = Array.from(new Set(
+    invoices
+      .flatMap(inv => inv.lines || [])
+      .filter(line => line.productId === 'MANUAL' && !!line.productName)
+      .map(line => line.productName.trim())
+      .filter(Boolean)
+  ));
+
+  const reloadPreOrders = () => {
+    setPreOrders(db.getPreOrders().filter(o => o.status !== 'DONE'));
+  };
 
   // State Modal Báo cáo
   const [isReportOpen, setIsReportOpen] = useState(false);
@@ -736,7 +752,7 @@ function CashbookPage() {
     const bs = db.getBankSettings();
     if (bs) { setBankId(bs.bankId); setAccNo(bs.accountNo); setAccName(bs.accountName); }
     
-    setPreOrders(db.getPreOrders().filter(o => o.status === 'PENDING'));
+    reloadPreOrders();
 
     // --- LOGIC BIỂU ĐỒ (Cập nhật theo viewMode) ---
     prepareChartData();
