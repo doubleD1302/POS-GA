@@ -39,7 +39,7 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
   const [isAskingAi, setIsAskingAi] = useState(false);
   const [aiModel, setAiModel] = useState<GeminiModel>('gemini-2.5-flash');
   const [isAwaitingApiKeyInput, setIsAwaitingApiKeyInput] = useState(false);
-  const [forecastDays, setForecastDays] = useState<7 | 30>(7);
+  const [isAiShortcutMenuOpen, setIsAiShortcutMenuOpen] = useState(false);
   const aiMessagesRef = useRef<HTMLDivElement | null>(null);
 
   const customerOptions = db.getPartners(PartnerType.CUSTOMER);
@@ -63,8 +63,6 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
       .filter(Boolean),
     ...db.getQuickItems()
   ]));
-  const priceSuggestions = aiService.suggestSellingPrices().slice(0, 4);
-  const cashflowForecast = aiService.forecastCashflow(forecastDays);
   const geminiModels = aiService.getGeminiModels();
   const bankSettings: BankSettings | null = db.getBankSettings();
 
@@ -415,30 +413,6 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
     }
   };
 
-  const handleAiShortcut = (shortcut: 'PRICE' | 'ANOMALY' | 'FORECAST_7' | 'FORECAST_30') => {
-    if (shortcut === 'PRICE') {
-      const top = priceSuggestions.slice(0, 3);
-      const answer = top.length === 0
-        ? 'Hiện chưa đủ dữ liệu để gợi ý giá bán.'
-        : top.map((s, idx) => `${idx + 1}. ${s.productName}: ${formatCurrency(s.suggestedPrice)} (${s.reason})`).join('\n');
-      pushAiMessage('Gợi ý giá bán hôm nay', answer);
-      return;
-    }
-
-    if (shortcut === 'ANOMALY') {
-      const answer = draftIssues.length === 0
-        ? 'Không phát hiện bất thường rõ ràng ở dữ liệu đơn đang nhập.'
-        : draftIssues.map((issue, idx) => `${idx + 1}. ${issue.message}`).join('\n');
-      pushAiMessage('Kiểm tra bất thường nhập liệu', answer);
-      return;
-    }
-
-    const days = shortcut === 'FORECAST_30' ? 30 : 7;
-    const forecast = aiService.forecastCashflow(days);
-    const answer = `Dự báo ${forecast.days} ngày:\n- Thu: ${formatCurrency(forecast.expectedIn)}\n- Chi: ${formatCurrency(forecast.expectedOut)}\n- Ròng: ${formatCurrency(forecast.expectedNet)}`;
-    pushAiMessage(`Dự báo dòng tiền ${days} ngày`, answer);
-  };
-
   const handleCheckGemini = async () => {
     if (isAskingAi) return;
     setIsAskingAi(true);
@@ -495,14 +469,6 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
       window.open(qr, '_blank', 'noopener,noreferrer');
     }
   };
-  const draftIssues = aiService.detectInputIssues({
-    customerName: poName,
-    customerPhone: poPhone,
-    unitPrice: Number(poPrice) || 0,
-    qtyKg: Number(poKg) || 0,
-    qtyCon: Number(poCon) || 0,
-    productName: poProduct,
-  });
   const draftTotal = (Number(poKg) > 0 ? Number(poKg) : Number(poCon)) * (Number(poPrice) || 0);
   const deliveryQrLink = getDeliveryQrLink();
 
@@ -807,7 +773,7 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
 
       <div className="fixed right-4 bottom-24 z-40">
         {isAiChatOpen && (
-          <div className="mb-3 w-[320px] max-w-[calc(100vw-2rem)] bg-white border border-gray-200 rounded-2xl shadow-xl overflow-hidden">
+          <div className="mb-3 w-[390px] sm:w-[440px] max-w-[calc(100vw-0.75rem)] bg-white border border-gray-200 rounded-2xl shadow-xl overflow-hidden">
             <div className="px-3 py-2 bg-brand-600 text-white flex items-center justify-between">
               <div className="text-sm font-bold">AI hỗ trợ</div>
               <div className="flex items-center gap-2">
@@ -823,22 +789,24 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
             </div>
 
             <div className="p-3 border-b border-gray-100">
-              <div className="text-[11px] uppercase font-bold text-gray-500 mb-2">Lối tắt</div>
-              <div className="flex flex-wrap gap-2">
-                <button onClick={() => handleAiShortcut('PRICE')} className="text-xs px-2 py-1 rounded-full border border-gray-300 bg-gray-50 text-gray-700">Giá bán</button>
-                <button onClick={() => handleAiShortcut('ANOMALY')} className="text-xs px-2 py-1 rounded-full border border-gray-300 bg-gray-50 text-gray-700">Bất thường</button>
-                <button onClick={() => { setForecastDays(7); handleAiShortcut('FORECAST_7'); }} className="text-xs px-2 py-1 rounded-full border border-gray-300 bg-gray-50 text-gray-700">Dự báo 7 ngày</button>
-                <button onClick={() => { setForecastDays(30); handleAiShortcut('FORECAST_30'); }} className="text-xs px-2 py-1 rounded-full border border-gray-300 bg-gray-50 text-gray-700">Dự báo 30 ngày</button>
-                <button onClick={handleShowApiKeyGuide} className="text-xs px-2 py-1 rounded-full border border-indigo-300 bg-indigo-50 text-indigo-700">Hướng dẫn lấy API key</button>
-                <button onClick={handleStartSetApiKey} className="text-xs px-2 py-1 rounded-full border border-emerald-300 bg-emerald-50 text-emerald-700">Set API key</button>
-                <button onClick={handleCheckGemini} className="text-xs px-2 py-1 rounded-full border border-blue-300 bg-blue-50 text-blue-700">Kiểm tra kết nối Gemini</button>
-              </div>
-              <div className="mt-2 text-[11px] text-gray-500">
-                Thu/Chi {forecastDays} ngày: <span className="font-bold text-green-700">{formatCurrency(cashflowForecast.expectedIn)}</span> / <span className="font-bold text-red-700">{formatCurrency(cashflowForecast.expectedOut)}</span>
-              </div>
+              <button
+                type="button"
+                onClick={() => setIsAiShortcutMenuOpen(prev => !prev)}
+                className="w-full flex items-center justify-between text-xs font-bold text-gray-700 border border-gray-300 bg-gray-50 rounded-lg px-3 py-2"
+              >
+                <span>Lối tắt</span>
+                <span>{isAiShortcutMenuOpen ? '▲' : '▼'}</span>
+              </button>
+              {isAiShortcutMenuOpen && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button onClick={handleShowApiKeyGuide} className="text-xs px-2 py-1 rounded-full border border-indigo-300 bg-indigo-50 text-indigo-700">Hướng dẫn lấy API key</button>
+                  <button onClick={handleStartSetApiKey} className="text-xs px-2 py-1 rounded-full border border-emerald-300 bg-emerald-50 text-emerald-700">Set API key</button>
+                  <button onClick={handleCheckGemini} className="text-xs px-2 py-1 rounded-full border border-blue-300 bg-blue-50 text-blue-700">Kiểm tra kết nối Gemini</button>
+                </div>
+              )}
             </div>
 
-            <div ref={aiMessagesRef} className="max-h-56 overflow-y-auto p-3 space-y-2 bg-gray-50">
+            <div ref={aiMessagesRef} className="h-[340px] overflow-y-auto p-3 space-y-2 bg-gray-50">
               {aiMessages.map((message, idx) => (
                 <div
                   key={idx}

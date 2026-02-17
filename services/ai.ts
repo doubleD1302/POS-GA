@@ -256,11 +256,12 @@ export const aiService = {
     const recentHistory = history.slice(-6);
     const systemPrompt = [
       'Bạn là trợ lý vận hành cho cửa hàng gà thịt.',
-      'Trả lời đầy đủ, chi tiết, rõ ràng bằng tiếng Việt.',
+      'Trả lời bằng tiếng Việt, đúng trọng tâm, ngắn gọn, dễ hiểu.',
+      'Mặc định tối đa 3-5 câu, trừ khi người dùng yêu cầu giải thích sâu.',
       'Phải dựa trên BUSINESS_DATA, không bịa số liệu.',
       'Nếu dữ liệu không đủ thì nêu rõ thiếu dữ liệu nào.',
       'Ưu tiên gợi ý hành động thực tế cho chủ cửa hàng.',
-      'Không tự rút gọn quá mức. Với câu hỏi phân tích, hãy trình bày đủ ý và có cấu trúc.'
+      'Không lan man, không lặp ý, không mở rộng ngoài câu hỏi.'
     ].join('\n');
 
     const userPrompt = JSON.stringify({
@@ -279,9 +280,9 @@ export const aiService = {
             body: JSON.stringify({
               contents: [{ role: 'user', parts: [{ text: promptText }] }],
               generationConfig: {
-                temperature: 0.55,
-                topP: 0.95,
-                maxOutputTokens: 8192,
+                temperature: 0.25,
+                topP: 0.85,
+                maxOutputTokens: 1024,
               },
             }),
           });
@@ -294,8 +295,7 @@ export const aiService = {
           const data = await res.json();
           const candidate = data?.candidates?.[0];
           const text = candidate?.content?.parts?.[0]?.text?.trim() || '';
-          const finishReason = candidate?.finishReason || '';
-          return { text, finishReason };
+          return { text };
         };
 
         const first = await runGenerate(`${systemPrompt}\n\n${userPrompt}`);
@@ -303,27 +303,8 @@ export const aiService = {
           throw new Error('Gemini không trả về nội dung.');
         }
 
-        let answer = first.text;
-        let finishReason = first.finishReason;
-
-        let continueRound = 0;
-        while ((String(finishReason).toUpperCase() === 'MAX_TOKENS' || String(finishReason).toUpperCase() === 'LENGTH') && continueRound < 3) {
-          const continued = await runGenerate([
-            `${systemPrompt}`,
-            'Bạn vừa trả lời dở do giới hạn token. Hãy tiếp tục phần còn lại, không lặp lại đoạn đã viết.',
-            `Câu hỏi gốc: ${question}`,
-            `Phần đã trả lời: ${answer}`,
-            'Hãy viết tiếp phần còn thiếu:'
-          ].join('\n\n'));
-
-          if (!continued.text) break;
-          answer += `\n\n${continued.text}`;
-          finishReason = continued.finishReason;
-          continueRound += 1;
-        }
-
         return {
-          answer,
+          answer: first.text,
           usedModel: model,
           switchedModel: model !== selectedModel,
           source: 'gemini',
