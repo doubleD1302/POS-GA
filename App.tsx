@@ -670,11 +670,6 @@ function CashbookPage() {
   const [poTime, setPoTime] = useState('');
   const [poNote, setPoNote] = useState('');
 
-  // State form Chi phí khác
-  const [otherExpenseCategory, setOtherExpenseCategory] = useState('Cám');
-  const [otherExpenseAmount, setOtherExpenseAmount] = useState('');
-  const [otherExpenseNote, setOtherExpenseNote] = useState('');
-
   // State Modal Báo cáo
   const [isReportOpen, setIsReportOpen] = useState(false);
 
@@ -866,20 +861,6 @@ function CashbookPage() {
      db.saveBankSettings({ bankId: bankId.toUpperCase(), accountNo: accNo, accountName: lookupName.toUpperCase(), template: 'compact' });
      setIsSettingsOpen(false);
   }
-  const handleCreateOtherExpense = async () => {
-    const amount = Number(otherExpenseAmount);
-    if (!amount || amount <= 0) return alert("Vui lòng nhập số tiền chi hợp lệ");
-
-    try {
-      await db.createOtherExpense(amount, otherExpenseCategory, otherExpenseNote);
-      setTxns(db.getCashTransactions());
-      setOtherExpenseAmount('');
-      setOtherExpenseNote('');
-      alert("Đã ghi nhận khoản chi");
-    } catch (e: any) {
-      alert(e.message || 'Không thể lưu khoản chi');
-    }
-  };
   const handleSelectTxn = (txn: CashTransaction) => {
     setSelectedTxn(txn);
     if (txn.refId) setSelectedInvoice(db.getInvoice(txn.refId));
@@ -982,28 +963,6 @@ function CashbookPage() {
               <div className="text-lg font-bold text-orange-600">{formatCurrency(totalReceivables)}</div>
           </div>
       </div>
-
-      <Card title="Chi phí khác" className="mb-4">
-        <div className="grid grid-cols-2 gap-2">
-          <div className="col-span-2">
-            <Select
-              label="Nhóm chi"
-              value={otherExpenseCategory}
-              onChange={(e: any) => setOtherExpenseCategory(e.target.value)}
-              options={[
-                { value: 'Cám', label: 'Cám gà' },
-                { value: 'Bắp', label: 'Bắp' },
-                { value: 'Xăng dầu', label: 'Xăng dầu xe' },
-                { value: 'Vật tư', label: 'Vật tư khác' },
-                { value: 'Khác', label: 'Khác' },
-              ]}
-            />
-          </div>
-          <Input label="Số tiền" type="number" value={otherExpenseAmount} onChange={(e: any) => setOtherExpenseAmount(e.target.value)} placeholder="0" />
-          <Input label="Ghi chú" value={otherExpenseNote} onChange={(e: any) => setOtherExpenseNote(e.target.value)} placeholder="Tuỳ chọn" />
-        </div>
-        <Button className="w-full mt-3" variant="danger" onClick={handleCreateOtherExpense}>+ Ghi nhận chi phí</Button>
-      </Card>
 
       <Card title={`Biểu đồ ${viewMode === 'MONTH' ? 'Tháng' : 'Năm'}`} className="mb-4 h-64">
          <ResponsiveContainer width="100%" height="100%">
