@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { db } from '../services/db';
-import { DashboardStats, PartnerType, PreOrder, Unit, PaymentMethod } from '../types';
+import { DashboardStats, PartnerType, PreOrder, Unit, PaymentMethod, BankSettings } from '../types';
 import { aiService, GeminiModel } from '../services/ai';
 import { formatCurrency, ICONS } from '../constants';
 import { StatCard, Button, Card, Input, Select, Modal } from '../components/ui';
@@ -63,6 +63,7 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
   const priceSuggestions = aiService.suggestSellingPrices().slice(0, 4);
   const cashflowForecast = aiService.forecastCashflow(forecastDays);
   const geminiModels = aiService.getGeminiModels();
+  const bankSettings: BankSettings | null = db.getBankSettings();
 
   const refreshStats = () => {
     const data = db.getDashboardStats();
@@ -363,6 +364,16 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
 
   const formatTime = (isoString: string) => { try { const d = new Date(isoString); return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`; } catch (e) { return ''; } }
   const formatDateShort = (isoString: string) => { try { const d = new Date(isoString); return `${d.getDate()}/${d.getMonth() + 1}`; } catch (e) { return ''; } }
+  const getDeliveryQrLink = () => {
+    if (!bankSettings || !bankSettings.bankId || !bankSettings.accountNo) return null;
+    const normalize = (str: string) => (str || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ');
+    const customerName = poName || 'Khach hang';
+    const template = bankSettings.template || 'compact';
+    const transferAmount = Math.max(0, Number(deliveryPaidAmount) || Number(draftTotal) || 0);
+    if (transferAmount <= 0) return null;
+    const info = normalize(customerName).substring(0, 50);
+    return `https://img.vietqr.io/image/${bankSettings.bankId}-${bankSettings.accountNo}-${template}.png?amount=${transferAmount}&addInfo=${encodeURIComponent(info)}`;
+  };
   const draftIssues = aiService.detectInputIssues({
     customerName: poName,
     customerPhone: poPhone,
@@ -600,6 +611,25 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
                 onChange={(e: any) => setDeliveryPaidAmount(Number(e.target.value))}
                 disabled={deliveryPaymentMethod === PaymentMethod.DEBT}
               />
+              {deliveryPaymentMethod === PaymentMethod.TRANSFER && (
+                <div className="bg-white border border-blue-100 rounded-lg p-2 text-center">
+                  {bankSettings && getDeliveryQrLink() ? (
+                    <>
+                      <div className="text-xs text-blue-800 font-semibold mb-2">Quét mã để chuyển khoản</div>
+                      <img src={getDeliveryQrLink()!} alt="VietQR" className="mx-auto h-36 object-contain bg-white p-1 rounded" />
+                      <div className="mt-2 text-xs text-gray-600">
+                        <div className="font-bold">{bankSettings.accountName}</div>
+                        <div>{bankSettings.accountNo} - {bankSettings.bankId}</div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="text-sm text-red-500">Chưa cấu hình tài khoản ngân hàng hợp lệ trong Sổ Quỹ.</div>
+                      <Button variant="secondary" onClick={() => navigate('cash')} className="w-full">Mở Sổ quỹ để cấu hình QR</Button>
+                    </div>
+                  )}
+                </div>
+              )}
               <Button variant="success" className="w-full" onClick={handleDeliverSuccess}>Xác nhận giao hàng & xuất hoá đơn</Button>
             </div>
           )}

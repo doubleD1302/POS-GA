@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../services/db';
-import { Product, Partner, PartnerType, Unit, PaymentMethod, BankSettings, Batch, Gender } from '../types';
+import { Product, Partner, PartnerType, Unit, PaymentMethod, Batch, Gender } from '../types';
 import { Button, Input, Select, Card, Modal } from '../components/ui';
 import { formatCurrency, ICONS } from '../constants';
 
@@ -9,7 +9,6 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
   const [products, setProducts] = useState<Product[]>([]);
   const [batches, setBatches] = useState<Batch[]>([]);
   const [customers, setCustomers] = useState<Partner[]>([]);
-  const [bankSettings, setBankSettings] = useState<BankSettings | null>(null);
   
   // Form State
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
@@ -36,8 +35,9 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
     setProducts(db.getProducts());
     setBatches(db.getBatches());
     loadCustomers();
-    setBankSettings(db.getBankSettings());
   }, []);
+
+  const bankSettings = db.getBankSettings();
 
   const loadCustomers = (selectId?: string) => {
     const custs = db.getPartners(PartnerType.CUSTOMER);
@@ -175,17 +175,22 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
   // VietQR Link Generator
   const getQrLink = () => {
     if (!bankSettings) return null;
+    if (!bankSettings.bankId || !bankSettings.accountNo) return null;
     const customer = customers.find(c => c.id === selectedCustomerId);
     const customerName = customer ? customer.name : 'Khach hang';
     
     // Remove vietnamese accents for QR compatibility
     const normalize = (str: string) => str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
     
-    const { bankId, accountNo, template } = bankSettings;
+    const { bankId, accountNo } = bankSettings;
+    const template = bankSettings.template || 'compact';
     // Format info: "TenKhachHang"
     const info = normalize(customerName).substring(0, 50); 
-    
-    return `https://img.vietqr.io/image/${bankId}-${accountNo}-${template}.png?amount=${paidAmount}&addInfo=${encodeURIComponent(info)}`;
+
+    const transferAmount = Math.max(0, Number(paidAmount) || Number(totalAmount) || 0);
+    if (transferAmount <= 0) return null;
+
+    return `https://img.vietqr.io/image/${bankId}-${accountNo}-${template}.png?amount=${transferAmount}&addInfo=${encodeURIComponent(info)}`;
   };
 
   // Stock Helper
@@ -313,7 +318,7 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
          {/* QR Code Section */}
          {paymentMethod === PaymentMethod.TRANSFER && totalAmount > 0 && (
             <div className="mb-4 bg-blue-50 p-3 rounded-lg border border-blue-100 text-center">
-               {bankSettings ? (
+               {bankSettings && getQrLink() ? (
                  <>
                     <div className="text-xs text-blue-800 font-semibold mb-2">Quét mã để thanh toán</div>
                     <img src={getQrLink()!} alt="VietQR" className="mx-auto h-40 object-contain bg-white p-1 rounded" />
@@ -323,7 +328,10 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
                     </div>
                  </>
                ) : (
-                 <div className="text-sm text-red-500">Chưa cấu hình tài khoản ngân hàng trong Sổ Quỹ.</div>
+                 <div className="space-y-2">
+                  <div className="text-sm text-red-500">Chưa cấu hình tài khoản ngân hàng hợp lệ trong Sổ Quỹ.</div>
+                  <Button variant="secondary" onClick={() => navigate('cash')} className="w-full">Mở Sổ quỹ để cấu hình QR</Button>
+                 </div>
                )}
             </div>
          )}
