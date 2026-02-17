@@ -5,7 +5,10 @@ import { formatCurrency } from '../constants';
 export const GEMINI_MODELS = [
   'gemini-2.5-flash',
   'gemini-2.5-pro',
+  'gemini-2.0-flash',
+  'gemini-2.0-flash-lite',
   'gemini-1.5-flash',
+  'gemini-1.5-pro',
 ] as const;
 
 export type GeminiModel = typeof GEMINI_MODELS[number];
@@ -112,6 +115,22 @@ const isTokenOrQuotaError = (status: number, message: string) => {
   return status === 429 || m.includes('quota') || m.includes('resource_exhausted') || m.includes('token');
 };
 
+const isRecoverableModelError = (status: number, message: string) => {
+  const m = (message || '').toLowerCase();
+  return (
+    status === 400 ||
+    status === 403 ||
+    status === 404 ||
+    status === 429 ||
+    m.includes('not found') ||
+    m.includes('unsupported') ||
+    m.includes('permission') ||
+    m.includes('quota') ||
+    m.includes('resource_exhausted') ||
+    m.includes('model')
+  );
+};
+
 export const aiService = {
   getGeminiModels(): GeminiModel[] {
     return [...GEMINI_MODELS];
@@ -164,7 +183,7 @@ export const aiService = {
 
         if (!res.ok) {
           const errorText = await res.text();
-          if (isTokenOrQuotaError(res.status, errorText) && idx < modelQueue.length - 1) {
+          if (isRecoverableModelError(res.status, errorText) && idx < modelQueue.length - 1) {
             continue;
           }
           throw new Error(errorText || `Gemini error ${res.status}`);
@@ -183,7 +202,7 @@ export const aiService = {
         };
       } catch (error: any) {
         const message = String(error?.message || error || '');
-        if (isTokenOrQuotaError(429, message) && idx < modelQueue.length - 1) {
+        if ((isTokenOrQuotaError(429, message) || isRecoverableModelError(400, message)) && idx < modelQueue.length - 1) {
           continue;
         }
 
