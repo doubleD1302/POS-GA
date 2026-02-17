@@ -257,7 +257,8 @@ export const aiService = {
     const systemPrompt = [
       'Bạn là trợ lý vận hành cho cửa hàng gà thịt.',
       'Trả lời bằng tiếng Việt, đúng trọng tâm, ngắn gọn, dễ hiểu.',
-      'Trả lời đầy đủ ý nhưng cô đọng (ưu tiên 4-8 câu hoặc 3-6 gạch đầu dòng ngắn).',
+      'Không giới hạn cứng độ dài bằng kỹ thuật; tự điều tiết theo yêu cầu người dùng.',
+      'Mặc định trả lời cô đọng: 3-6 ý ngắn, mỗi ý 1-2 câu, tập trung vào hành động.',
       'Phải dựa trên BUSINESS_DATA, không bịa số liệu.',
       'Nếu dữ liệu không đủ thì nêu rõ thiếu dữ liệu nào.',
       'Ưu tiên gợi ý hành động thực tế cho chủ cửa hàng.',
@@ -282,7 +283,7 @@ export const aiService = {
               generationConfig: {
                 temperature: 0.25,
                 topP: 0.85,
-                maxOutputTokens: 1536,
+                maxOutputTokens: 8192,
               },
             }),
           });
@@ -294,7 +295,10 @@ export const aiService = {
 
           const data = await res.json();
           const candidate = data?.candidates?.[0];
-          const text = candidate?.content?.parts?.[0]?.text?.trim() || '';
+          const text = (candidate?.content?.parts || [])
+            .map((part: any) => part?.text || '')
+            .join('')
+            .trim();
           const finishReason = String(candidate?.finishReason || '').toUpperCase();
           return { text, finishReason };
         };
