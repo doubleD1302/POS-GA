@@ -3,6 +3,9 @@ import { PartnerType, PaymentMethod, TransactionType } from '../types';
 import { formatCurrency } from '../constants';
 
 export const GEMINI_MODELS = [
+  'gemini-3.0-flash',
+  'gemini-3.0-pro',
+  'gemini-3.0-flash-thinking',
   'gemini-2.5-flash',
   'gemini-2.5-pro',
   'gemini-2.0-flash',
@@ -154,10 +157,11 @@ export const aiService = {
     const recentHistory = history.slice(-6);
     const systemPrompt = [
       'Bạn là trợ lý vận hành cho cửa hàng gà thịt.',
-      'Trả lời ngắn gọn, chính xác, bằng tiếng Việt.',
+      'Trả lời đầy đủ, chi tiết, rõ ràng bằng tiếng Việt.',
       'Phải dựa trên BUSINESS_DATA, không bịa số liệu.',
       'Nếu dữ liệu không đủ thì nêu rõ thiếu dữ liệu nào.',
-      'Ưu tiên gợi ý hành động thực tế cho chủ cửa hàng.'
+      'Ưu tiên gợi ý hành động thực tế cho chủ cửa hàng.',
+      'Không tự rút gọn quá mức. Với câu hỏi phân tích, hãy trình bày đủ ý và có cấu trúc.'
     ].join('\n');
 
     const userPrompt = JSON.stringify({
@@ -169,30 +173,53 @@ export const aiService = {
     for (let idx = 0; idx < modelQueue.length; idx++) {
       const model = modelQueue[idx];
       try {
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ role: 'user', parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }] }],
-            generationConfig: {
-              temperature: 0.2,
-              maxOutputTokens: 700,
-            },
-          }),
-        });
+        const runGenerate = async (promptText: string) => {
+          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ role: 'user', parts: [{ text: promptText }] }],
+              generationConfig: {
+                temperature: 0.2,
+                maxOutputTokens: 8192,
+              },
+            }),
+          });
 
-        if (!res.ok) {
-          const errorText = await res.text();
-          if (isRecoverableModelError(res.status, errorText) && idx < modelQueue.length - 1) {
-            continue;
+          if (!res.ok) {
+            const errorText = await res.text();
+            throw new Error(errorText || `Gemini error ${res.status}`);
           }
-          throw new Error(errorText || `Gemini error ${res.status}`);
+
+          const data = await res.json();
+          const candidate = data?.candidates?.[0];
+          const text = candidate?.content?.parts?.[0]?.text?.trim() || '';
+          const finishReason = candidate?.finishReason || '';
+          return { text, finishReason };
+        };
+
+        const first = await runGenerate(`${systemPrompt}\n\n${userPrompt}`);
+        if (!first.text) {
+          throw new Error('Gemini không trả về nội dung.');
         }
 
-        const data = await res.json();
-        const answer = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-        if (!answer) {
-          throw new Error('Gemini không trả về nội dung.');
+        let answer = first.text;
+        let finishReason = first.finishReason;
+
+        let continueRound = 0;
+        while ((String(finishReason).toUpperCase() === 'MAX_TOKENS' || String(finishReason).toUpperCase() === 'LENGTH') && continueRound < 3) {
+          const continued = await runGenerate([
+            `${systemPrompt}`,
+            'Bạn vừa trả lời dở do giới hạn token. Hãy tiếp tục phần còn lại, không lặp lại đoạn đã viết.',
+            `Câu hỏi gốc: ${question}`,
+            `Phần đã trả lời: ${answer}`,
+            'Hãy viết tiếp phần còn thiếu:'
+          ].join('\n\n'));
+
+          if (!continued.text) break;
+          answer += `\n\n${continued.text}`;
+          finishReason = continued.finishReason;
+          continueRound += 1;
         }
 
         return {
