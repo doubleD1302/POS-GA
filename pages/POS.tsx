@@ -217,6 +217,8 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
     }
   };
 
+  const qrLink = getQrLink();
+
   // Stock Helper
   const getStock = (pid: string) => {
     const prodBatches = batches.filter(b => b.productId === pid && b.status === 'OPEN');
@@ -342,17 +344,13 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
          {/* QR Code Section */}
          {paymentMethod === PaymentMethod.TRANSFER && totalAmount > 0 && (
             <div className="mb-4 bg-blue-50 p-3 rounded-lg border border-blue-100 text-center">
-               {bankSettings && getQrLink() ? (
+               {bankSettings && qrLink ? (
                  <>
                     <div className="text-xs text-blue-800 font-semibold mb-2">Quét mã để thanh toán</div>
-                    <img src={getQrLink()!} alt="VietQR" className="mx-auto h-40 object-contain bg-white p-1 rounded" />
+                    <img src={qrLink} alt="VietQR" className="mx-auto h-40 object-contain bg-white p-1 rounded" />
                     <div className="mt-2 text-xs text-gray-600">
                       <div className="font-bold">{bankSettings.accountName}</div>
                       <div>{bankSettings.accountNo} - {bankSettings.bankId}</div>
-                    </div>
-                    <div className="mt-2 grid grid-cols-2 gap-2">
-                      <Button variant="secondary" onClick={handleDownloadQr} className="w-full">Tải QR</Button>
-                      <Button variant="secondary" onClick={handleOpenQrFullscreen} className="w-full">Mở QR toàn màn hình</Button>
                     </div>
                  </>
                ) : (
@@ -361,6 +359,25 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
                   <Button variant="secondary" onClick={() => navigate('cash')} className="w-full">Mở Sổ quỹ để cấu hình QR</Button>
                  </div>
                )}
+
+               <div className="mt-3 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={handleDownloadQr}
+                  disabled={!qrLink}
+                  className="w-full py-2 text-xs font-bold rounded border border-blue-600 bg-blue-600 text-white disabled:bg-gray-200 disabled:text-gray-500 disabled:border-gray-300"
+                >
+                  Tải QR
+                </button>
+                <button
+                  type="button"
+                  onClick={handleOpenQrFullscreen}
+                  disabled={!qrLink}
+                  className="w-full py-2 text-xs font-bold rounded border border-blue-600 bg-white text-blue-700 disabled:bg-gray-200 disabled:text-gray-500 disabled:border-gray-300"
+                >
+                  Mở QR toàn màn hình
+                </button>
+               </div>
             </div>
          )}
 

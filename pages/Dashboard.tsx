@@ -406,6 +406,7 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
     productName: poProduct,
   });
   const draftTotal = (Number(poKg) > 0 ? Number(poKg) : Number(poCon)) * (Number(poPrice) || 0);
+  const deliveryQrLink = getDeliveryQrLink();
 
   return (
     <div className="space-y-4 pb-20">
@@ -636,17 +637,13 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
               />
               {deliveryPaymentMethod === PaymentMethod.TRANSFER && (
                 <div className="bg-white border border-blue-100 rounded-lg p-2 text-center">
-                  {bankSettings && getDeliveryQrLink() ? (
+                  {bankSettings && deliveryQrLink ? (
                     <>
                       <div className="text-xs text-blue-800 font-semibold mb-2">Quét mã để chuyển khoản</div>
-                      <img src={getDeliveryQrLink()!} alt="VietQR" className="mx-auto h-36 object-contain bg-white p-1 rounded" />
+                      <img src={deliveryQrLink} alt="VietQR" className="mx-auto h-36 object-contain bg-white p-1 rounded" />
                       <div className="mt-2 text-xs text-gray-600">
                         <div className="font-bold">{bankSettings.accountName}</div>
                         <div>{bankSettings.accountNo} - {bankSettings.bankId}</div>
-                      </div>
-                      <div className="mt-2 grid grid-cols-2 gap-2">
-                        <Button variant="secondary" onClick={handleDownloadDeliveryQr} className="w-full">Tải QR</Button>
-                        <Button variant="secondary" onClick={handleOpenDeliveryQrFullscreen} className="w-full">Mở QR toàn màn hình</Button>
                       </div>
                     </>
                   ) : (
@@ -655,6 +652,24 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
                       <Button variant="secondary" onClick={() => navigate('cash')} className="w-full">Mở Sổ quỹ để cấu hình QR</Button>
                     </div>
                   )}
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={handleDownloadDeliveryQr}
+                      disabled={!deliveryQrLink}
+                      className="w-full py-2 text-xs font-bold rounded border border-blue-600 bg-blue-600 text-white disabled:bg-gray-200 disabled:text-gray-500 disabled:border-gray-300"
+                    >
+                      Tải QR
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleOpenDeliveryQrFullscreen}
+                      disabled={!deliveryQrLink}
+                      className="w-full py-2 text-xs font-bold rounded border border-blue-600 bg-white text-blue-700 disabled:bg-gray-200 disabled:text-gray-500 disabled:border-gray-300"
+                    >
+                      Mở QR toàn màn hình
+                    </button>
+                  </div>
                 </div>
               )}
               <Button variant="success" className="w-full" onClick={handleDeliverSuccess}>Xác nhận giao hàng & xuất hoá đơn</Button>
