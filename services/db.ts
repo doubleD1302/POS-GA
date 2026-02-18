@@ -575,6 +575,128 @@ class Database {
     return invoice;
   }
 
+  async updateExportInvoice(
+    invoiceId: string,
+    updatedLinesInput: Array<Partial<InvoiceLine> & { productId: string; productName: string; gender: Gender; qtyKg: number; qtyCon: number; price: number }>,
+    reason: string
+  ) {
+    const safeReason = (reason || '').trim();
+    if (!safeReason) throw new Error('Vui lòng nhập lý do chỉnh sửa.');
+
+    const invoices = this.getInvoices();
+    const invoiceIndex = invoices.findIndex(i => i.id === invoiceId);
+    if (invoiceIndex < 0) throw new Error('Không tìm thấy hoá đơn cần chỉnh sửa.');
+
+    const targetInvoice = invoices[invoiceIndex];
+    if (targetInvoice.type !== 'EXPORT') {
+      throw new Error('Chỉ hỗ trợ chỉnh sửa hoá đơn bán hàng.');
+    }
+
+    const normalizedLines: InvoiceLine[] = updatedLinesInput.map((line) => {
+      const qtyKg = Math.max(0, Number(line.qtyKg) || 0);
+      const qtyCon = Math.max(0, Number(line.qtyCon) || 0);
+      const price = Math.max(0, Number(line.price) || 0);
+      const amount = (qtyKg > 0 ? qtyKg : qtyCon) * price;
+
+      return {
+        productId: line.productId,
+        productName: line.productName,
+        gender: line.gender || 'MALE',
+        qtyKg,
+        qtyCon,
+        price,
+        amount,
+        unit: qtyKg > 0 ? Unit.KG : Unit.CON,
+        gross: line.gross,
+        tare: line.tare,
+        details: line.details,
+      };
+    });
+
+    if (normalizedLines.length === 0) {
+      throw new Error('Hoá đơn phải có ít nhất một dòng hàng.');
+    }
+
+    const hasInvalidLine = normalizedLines.some(l => (l.qtyKg <= 0 && l.qtyCon <= 0) || l.price <= 0);
+    if (hasInvalidLine) {
+      throw new Error('Mỗi dòng cần có số lượng và đơn giá hợp lệ.');
+    }
+
+    const previousDebt = Number(targetInvoice.debtAmount) || 0;
+    const newTotalAmount = normalizedLines.reduce((sum, line) => sum + line.amount, 0);
+    const newPaidAmount = Math.min(Math.max(Number(targetInvoice.paidAmount) || 0, 0), newTotalAmount);
+    const newDebtAmount = Math.max(0, newTotalAmount - newPaidAmount);
+
+    const nextPaymentMethod = newDebtAmount <= 0
+      ? (targetInvoice.paymentMethod === PaymentMethod.TRANSFER ? PaymentMethod.TRANSFER : PaymentMethod.CASH)
+      : (newPaidAmount <= 0 ? PaymentMethod.DEBT : (targetInvoice.paymentMethod === PaymentMethod.TRANSFER ? PaymentMethod.TRANSFER : PaymentMethod.CASH));
+
+    const historyEntry = {
+      editedAt: new Date().toISOString(),
+      reason: safeReason,
+      previousTotalAmount: Number(targetInvoice.totalAmount) || 0,
+      newTotalAmount,
+      previousLines: (targetInvoice.lines || []).map(line => ({ ...line })),
+      updatedLines: normalizedLines.map(line => ({ ...line })),
+    };
+
+    const updatedInvoice: Invoice = {
+      ...targetInvoice,
+      lines: normalizedLines,
+      totalAmount: newTotalAmount,
+      paidAmount: newPaidAmount,
+      debtAmount: newDebtAmount,
+      paymentMethod: nextPaymentMethod,
+      editHistory: [historyEntry, ...(targetInvoice.editHistory || [])],
+    };
+
+    invoices[invoiceIndex] = updatedInvoice;
+    this.save(BASE_KEYS.INVOICES, invoices);
+
+    const partners = this.getPartners();
+    const partner = partners.find(p => p.id === updatedInvoice.partnerId);
+    if (partner) {
+      const deltaDebt = newDebtAmount - previousDebt;
+      partner.debt = Math.max(0, (Number(partner.debt) || 0) + deltaDebt);
+      this.save(BASE_KEYS.PARTNERS, partners);
+    }
+
+    const cashTxns = this.getCashTransactions();
+    const incomeTxnsForInvoice = cashTxns.filter(t => t.refId === invoiceId && t.type === TransactionType.INCOME);
+    let nextCashTxns = [...cashTxns];
+
+    if (newPaidAmount > 0) {
+      const nextDescription = nextPaymentMethod === PaymentMethod.TRANSFER
+        ? `Thu chuyển khoản: ${updatedInvoice.partnerName}`
+        : `Thu bán hàng: ${updatedInvoice.partnerName}`;
+
+      if (incomeTxnsForInvoice.length > 0) {
+        const firstIncomeTxnId = incomeTxnsForInvoice[0].id;
+        nextCashTxns = nextCashTxns.map(txn => txn.id === firstIncomeTxnId
+          ? { ...txn, amount: newPaidAmount, description: nextDescription }
+          : txn
+        );
+      } else {
+        nextCashTxns.unshift({
+          id: `txn-edit-${Date.now()}`,
+          date: new Date().toISOString(),
+          type: TransactionType.INCOME,
+          amount: newPaidAmount,
+          description: nextDescription,
+          refId: invoiceId,
+        });
+      }
+    } else if (incomeTxnsForInvoice.length > 0) {
+      const incomeIds = new Set(incomeTxnsForInvoice.map(t => t.id));
+      nextCashTxns = nextCashTxns.filter(txn => !incomeIds.has(txn.id));
+    }
+
+    this.save(BASE_KEYS.CASH, nextCashTxns);
+
+    await delay(150);
+    return updatedInvoice;
+  }
+
   getDashboardStats(): DashboardStats {
     const today = new Date().toISOString().split('T')[0];
     const invoices = this.getInvoices();

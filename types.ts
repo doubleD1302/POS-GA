@@ -92,6 +92,15 @@ export interface InvoiceLine {
   details?: string;  
 }
 
+export interface InvoiceEditHistoryEntry {
+  editedAt: string;
+  reason: string;
+  previousTotalAmount: number;
+  newTotalAmount: number;
+  previousLines: InvoiceLine[];
+  updatedLines: InvoiceLine[];
+}
+
 export interface Invoice {
   id: string;
   code: string;
@@ -105,6 +114,7 @@ export interface Invoice {
   lines: InvoiceLine[];
   paymentMethod?: PaymentMethod;
   cogs?: number; // Only for EXPORT
+  editHistory?: InvoiceEditHistoryEntry[];
 }
 
 export interface CashTransaction {
