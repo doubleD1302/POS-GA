@@ -84,12 +84,26 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
     const paid = Number(deliveryPaidAmount) || 0;
     const unitPrice = (Number(poPrice) || 0) * 1000;
     const qtyCon = Number(poCon) || 0;
+    const qtyKg = Number(poKg) || 0;
 
-    if (qtyCon > 0 || paid <= 0 || unitPrice <= 0) return;
+    if (qtyCon > 0 || qtyKg > 0 || paid <= 0 || unitPrice <= 0) return;
 
     const inferredKg = paid / unitPrice;
     setPoKg(inferredKg.toFixed(3).replace(/\.0+$/, '').replace(/(\.\d*[1-9])0+$/, '$1'));
-  }, [showDeliveryPayment, deliveryPaymentMethod, deliveryPaidAmount, poPrice, poCon]);
+  }, [showDeliveryPayment, deliveryPaymentMethod, deliveryPaidAmount, poPrice, poCon, poKg]);
+
+  useEffect(() => {
+    if (!showDeliveryPayment) return;
+    if (deliveryPaymentMethod === PaymentMethod.DEBT) {
+      if (deliveryPaidAmount !== 0) setDeliveryPaidAmount(0);
+      return;
+    }
+
+    const nextTotal = draftTotal > 0 ? draftTotal : 0;
+    if (Number(deliveryPaidAmount) !== nextTotal) {
+      setDeliveryPaidAmount(nextTotal);
+    }
+  }, [showDeliveryPayment, deliveryPaymentMethod, poKg, poCon, poPrice]);
 
   if (!stats) return <div className="p-4">Đang tải...</div>;
 
