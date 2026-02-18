@@ -444,17 +444,17 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
             </div>
             <div className="w-1/2">
               <Input
-                label="Tiền công"
+                label="Tiền công (nghìn VND)"
                 type="number"
-                value={laborFee}
-                onChange={(e: any) => handleLaborFeeChange(Number(e.target.value))}
+                value={(Number(laborFee) || 0) / 1000}
+                onChange={(e: any) => handleLaborFeeChange((Number(e.target.value) || 0) * 1000)}
                 className="text-right font-bold"
               />
               <Input
-                label="Tổng khách phải trả"
+                label="Tổng khách phải trả (nghìn VND)"
                 type="number"
-                value={finalTotalAmount}
-                onChange={(e: any) => handleTotalCustomerPayChange(Number(e.target.value))}
+                value={(Number(finalTotalAmount) || 0) / 1000}
+                onChange={(e: any) => handleTotalCustomerPayChange((Number(e.target.value) || 0) * 1000)}
                 className="text-right font-bold mt-2"
               />
               {isTotalLowerThanActual && (
