@@ -103,6 +103,8 @@ class Database {
       });
     }
 
+    await this.backfillStockMovementsFromLegacyData();
+
     // --- KÍCH HOẠT REALTIME ---
     // Lắng nghe thay đổi từ các thiết bị khác
     supabase.channel('custom-all-channel')
@@ -158,6 +160,97 @@ class Database {
       console.error(`❌ Lỗi đồng bộ ${key}:`, error.message);
       throw error; // Ném lỗi để bên ngoài biết mà xử lý
     }
+  }
+
+  private toISODateTime(date: string, fallbackHour: string = '12:00:00'): string {
+    const safe = (date || '').trim();
+    if (!safe) return new Date().toISOString();
+    if (safe.includes('T')) {
+      const parsed = new Date(safe);
+      return isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString();
+    }
+    const parsed = new Date(`${safe}T${fallbackHour}`);
+    return isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString();
+  }
+
+  private async backfillStockMovementsFromLegacyData(force: boolean = false) {
+    const current = this.load<StockMovement[]>(BASE_KEYS.STOCK_MOVEMENTS, []);
+    const hasLegacyBackfill = current.some(item => (item.id || '').startsWith('stk-legacy-'));
+    if (!force && hasLegacyBackfill) return;
+
+    const products = this.getProducts();
+    const productNameMap = new Map(products.map(p => [p.id, p.name]));
+    const invoices = this.getInvoices();
+    const batches = this.load<Batch[]>(BASE_KEYS.BATCHES, []);
+    const generated: StockMovement[] = [];
+
+    const imports = invoices.filter(i => i.type === 'IMPORT');
+    imports.forEach((invoice, invIdx) => {
+      (invoice.lines || []).forEach((line, lineIdx) => {
+        if (!line.productId || line.productId === 'MANUAL') return;
+        generated.push({
+          id: `stk-legacy-import-${invoice.id}-${lineIdx}`,
+          occurredAt: this.toISODateTime(invoice.date, '08:00:00'),
+          productId: line.productId,
+          productName: line.productName || productNameMap.get(line.productId) || 'Không rõ sản phẩm',
+          gender: line.gender || 'MALE',
+          source: 'IMPORT',
+          deltaKg: Number(line.qtyKg) || 0,
+          deltaCon: Number(line.qtyCon) || 0,
+          note: `Backfill từ hóa đơn nhập ${invoice.code || invIdx + 1}`,
+        });
+      });
+    });
+
+    const exports = invoices.filter(i => i.type === 'EXPORT');
+    exports.forEach((invoice, invIdx) => {
+      (invoice.lines || []).forEach((line, lineIdx) => {
+        if (!line.productId || line.productId === 'MANUAL') return;
+        const qtyKg = Number(line.qtyKg) || 0;
+        const qtyCon = Number(line.qtyCon) || 0;
+        if (qtyKg <= 0 && qtyCon <= 0) return;
+        generated.push({
+          id: `stk-legacy-sale-${invoice.id}-${lineIdx}`,
+          occurredAt: this.toISODateTime(invoice.date, '17:00:00'),
+          productId: line.productId,
+          productName: line.productName || productNameMap.get(line.productId) || 'Không rõ sản phẩm',
+          gender: line.gender || 'MALE',
+          source: 'SALE',
+          deltaKg: -qtyKg,
+          deltaCon: -qtyCon,
+          note: `Backfill từ hóa đơn bán ${invoice.code || invIdx + 1}`,
+        });
+      });
+    });
+
+    const internalAdjustments = batches.filter(b => b.supplierId === 'INTERNAL');
+    internalAdjustments.forEach((batch, idx) => {
+      generated.push({
+        id: `stk-legacy-adj-${batch.id}-${idx}`,
+        occurredAt: this.toISODateTime(batch.date, '12:00:00'),
+        productId: batch.productId,
+        productName: productNameMap.get(batch.productId) || 'Không rõ sản phẩm',
+        gender: batch.gender || 'MALE',
+        batchId: batch.id,
+        source: 'ADJUSTMENT',
+        deltaKg: Number(batch.qtyInKg) || 0,
+        deltaCon: Number(batch.qtyInCon) || 0,
+        note: 'Backfill từ lô điều chỉnh kho cũ',
+      });
+    });
+
+    const merged = [...generated, ...current];
+    const seen = new Set<string>();
+    const deduped: StockMovement[] = [];
+    for (const item of merged) {
+      const key = item.id || `${item.occurredAt}-${item.productId}-${item.source}-${item.deltaKg}-${item.deltaCon}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(item);
+    }
+
+    deduped.sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime());
+    await this.save(BASE_KEYS.STOCK_MOVEMENTS, deduped.slice(0, 2000));
   }
 
   checkBusinessExists(id: string): boolean {
