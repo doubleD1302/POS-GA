@@ -8,6 +8,92 @@ import { db } from './services/db';
 import { Button, Input, Select, Card, Modal } from './components/ui';
 import { Partner, PartnerType, BankSettings, Invoice, CashTransaction, PreOrder, PaymentMethod, Product, Gender, SupplierCategory, Unit, DeletedTransactionHistory } from './types';
 
+type ParsedImportDetailEntry = {
+  raw: string;
+  debtDeduct: string;
+  netImport: string;
+  extras: string[];
+};
+
+const parseImportDetailEntries = (details?: string): ParsedImportDetailEntry[] => {
+  return (details || '')
+    .split(' + ')
+    .map(part => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const segments = part
+        .split('|')
+        .map(seg => seg.trim())
+        .filter(Boolean);
+
+      const result: ParsedImportDetailEntry = {
+        raw: segments[0] || '-',
+        debtDeduct: '-',
+        netImport: '-',
+        extras: [],
+      };
+
+      segments.slice(1).forEach((segment) => {
+        const normalized = segment.toLowerCase();
+        if (normalized.startsWith('trừ no 2%:')) {
+          result.debtDeduct = segment.replace(/^trừ no 2%:\s*/i, '').trim() || '-';
+          return;
+        }
+        if (normalized.startsWith('nhập kho:')) {
+          result.netImport = segment.replace(/^nhập kho:\s*/i, '').trim() || '-';
+          return;
+        }
+        result.extras.push(segment);
+      });
+
+      return result;
+    });
+};
+
+function ImportDetailBlock({ details, className = '' }: { details?: string; className?: string }) {
+  const parsed = parseImportDetailEntries(details);
+
+  return (
+    <div className={`bg-slate-50 border border-slate-200 rounded p-2 ${className}`.trim()}>
+      <div className="text-[11px] font-bold text-slate-600 mb-2">Chi tiết mã gà</div>
+
+      {parsed.length === 0 ? (
+        <div className="text-xs text-gray-500">-</div>
+      ) : (
+        <div className="space-y-2">
+          {parsed.map((entry, idx) => (
+            <div key={idx} className="bg-white border border-slate-200 rounded p-2">
+              <div className="text-[11px] font-bold text-brand-700 mb-1">Mã {idx + 1}</div>
+              <div className="space-y-1 text-xs">
+                <div className="flex justify-between gap-2">
+                  <span className="text-gray-500">Cân gốc</span>
+                  <span className="font-semibold text-gray-700 text-right break-words">{entry.raw}</span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-gray-500">Trừ no 2%</span>
+                  <span className="font-semibold text-red-600 text-right break-words">{entry.debtDeduct}</span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-gray-500">Nhập kho</span>
+                  <span className="font-semibold text-emerald-600 text-right break-words">{entry.netImport}</span>
+                </div>
+              </div>
+
+              {entry.extras.length > 0 && (
+                <div className="mt-2 border-t border-slate-100 pt-2 text-xs text-gray-500 space-y-1">
+                  {entry.extras.map((extra, extraIdx) => (
+                    <div key={`${idx}-extra-${extraIdx}`} className="break-words">{extra}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // --- LOGIN COMPONENT ---
 // --- LOGIN COMPONENT (ĐÃ SỬA ĐỂ KÍCH HOẠT ĐỒNG BỘ) ---
 function LoginScreen({ onLogin }: { onLogin: () => void }) {
@@ -434,12 +520,6 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
   };
 
   const currentSupplier = suppliers.find(s => s.id === supplierId);
-  const getDetailLines = (details: string) => {
-    return (details || '')
-      .split(' + ')
-      .map(part => part.trim())
-      .filter(Boolean);
-  };
 
   return (
     <div className="pb-24">
@@ -594,14 +674,7 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
                   <div>Trừ no 2%: <span className="font-bold text-red-600">-{item.debtDeductKg.toFixed(2)} kg</span></div>
                   <div className="col-span-2">Thực nhập kho: <span className="font-bold text-emerald-600">{item.kg.toFixed(2)} kg</span></div>
                   <div>Số lượng: <span className="font-bold text-blue-600">{item.con} con</span></div>
-                  <div className="col-span-2 mt-2 bg-slate-50 border border-slate-200 rounded p-2">
-                    <div className="text-[11px] font-bold text-slate-600 mb-1">Chi tiết mã gà:</div>
-                    <ol className="list-decimal pl-4 space-y-1 text-xs text-slate-700">
-                      {getDetailLines(item.details).map((line, lineIdx) => (
-                        <li key={lineIdx} className="leading-5 break-words">{line}</li>
-                      ))}
-                    </ol>
-                  </div>
+                  <ImportDetailBlock details={item.details} className="col-span-2 mt-2" />
                   <div className="col-span-2 border-t border-gray-200 mt-2 pt-2 flex justify-between items-center">
                     <span>Đơn giá: {(item.price / 1000).toLocaleString('vi-VN')} nghìn VND/kg</span>
                     <span className="text-lg font-bold text-gray-800">{formatCurrency(item.total)}</span>
@@ -1646,7 +1719,7 @@ function CashbookPage() {
                                     <div className="col-span-2 border-b border-gray-100 my-1"></div>
                                     <div>Thực nhập: <span className="font-bold text-blue-600">{line.qtyKg.toFixed(2)} kg</span></div>
                                     <div>Số lượng: <span className="font-bold text-blue-600">{line.qtyCon} con</span></div>
-                                    <div className="col-span-2 text-xs italic text-gray-400 mt-1">Chi tiết: {line.details || '-'}</div>
+                                    <ImportDetailBlock details={line.details} className="col-span-2 mt-2" />
                                     <div className="col-span-2 border-t border-gray-200 mt-2 pt-2 flex justify-between items-center">
                                       <span>Đơn giá: {(line.price / 1000).toLocaleString('vi-VN')} nghìn VND/kg</span>
                                       <span className="text-lg font-bold text-gray-800">{formatCurrency(line.amount)}</span>
