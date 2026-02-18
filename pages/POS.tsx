@@ -168,10 +168,10 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
       const paidAmount = paymentMethod === PaymentMethod.DEBT ? 0 : finalTotalAmount;
 
       const saleLines = [...cart.map(c => ({ ...c, paymentMethod }))];
-      if (laborFee > 0) {
+      if (laborFee !== 0) {
         saleLines.push({
           productId: 'MANUAL',
-          productName: 'Tiền công',
+          productName: laborFee > 0 ? 'Tiền công' : 'Giảm trừ',
           gender: 'MALE',
           qtyKg: 0,
           qtyCon: 1,
@@ -222,13 +222,13 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
   };
 
   const handleLaborFeeChange = (value: number) => {
-    const nextLabor = Math.max(0, Number(value) || 0);
+    const nextLabor = Number(value) || 0;
     setLaborFee(nextLabor);
   };
 
   const handleTotalCustomerPayChange = (value: number) => {
-    const totalCustomerPay = Math.max(0, Number(value) || 0);
-    const nextLabor = Math.max(0, totalCustomerPay - totalAmount);
+    const totalCustomerPay = Number(value) || 0;
+    const nextLabor = totalCustomerPay - totalAmount;
     setLaborFee(nextLabor);
   };
 

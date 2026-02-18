@@ -277,7 +277,7 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
     const qtyCon = Number(poCon) || 0;
     const qtyKg = Number(poKg) || 0;
     const unitPrice = (Number(poPrice) || 0) * 1000;
-    const laborFee = Math.max(0, Number(deliveryLaborFee) || 0);
+    const laborFee = Number(deliveryLaborFee) || 0;
     const orderTotal = ((qtyKg > 0 ? qtyKg : qtyCon) * unitPrice) + laborFee;
 
     if (!poName || !poProduct || !poTime) return alert('Vui lòng nhập đủ khách hàng, hàng hoá và thời gian giao.');
@@ -318,10 +318,10 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
     };
 
     const saleLines = [saleLine];
-    if (laborFee > 0) {
+    if (laborFee !== 0) {
       saleLines.push({
         productId: 'MANUAL',
-        productName: 'Tiền công',
+        productName: laborFee > 0 ? 'Tiền công' : 'Giảm trừ',
         qtyCon: 1,
         qtyKg: 0,
         unit: Unit.CON,
@@ -757,15 +757,15 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
                 label="Tiền công"
                 type="number"
                 value={deliveryLaborFee}
-                onChange={(e: any) => setDeliveryLaborFee(Math.max(0, Number(e.target.value) || 0))}
+                onChange={(e: any) => setDeliveryLaborFee(Number(e.target.value) || 0)}
               />
               <Input
                 label="Tổng khách phải trả"
                 type="number"
                 value={draftTotal}
                 onChange={(e: any) => {
-                  const totalCustomerPay = Math.max(0, Number(e.target.value) || 0);
-                  setDeliveryLaborFee(Math.max(0, totalCustomerPay - draftBaseTotal));
+                  const totalCustomerPay = Number(e.target.value) || 0;
+                  setDeliveryLaborFee(totalCustomerPay - draftBaseTotal);
                 }}
               />
               {deliveryPaymentMethod !== PaymentMethod.DEBT && Number(poCon) <= 0 && Number(draftTotal) > 0 && Number(poPrice) > 0 && (
