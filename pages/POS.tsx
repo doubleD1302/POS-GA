@@ -67,6 +67,7 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
 
   const totalAmount = cart.reduce((sum, item) => sum + item.amount, 0);
   const finalTotalAmount = totalAmount + (Number(laborFee) || 0);
+  const isTotalLowerThanActual = finalTotalAmount < totalAmount;
 
   useEffect(() => {
     if (cart.length === 0 && laborFee !== 0) {
@@ -166,6 +167,14 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
       const selectedCustomer = customers.find(c => c.id === selectedCustomerId);
       if (selectedCustomer) db.saveQuickCustomer(selectedCustomer.name, selectedCustomer.phone);
       const paidAmount = paymentMethod === PaymentMethod.DEBT ? 0 : finalTotalAmount;
+
+      if (isTotalLowerThanActual) {
+        const ok = window.confirm('Đơn giá chính xác là số_kg x đơn_giá = tổng_tiền, hãy cân nhắc kỹ. Bạn vẫn muốn lưu đơn với tổng khách phải trả nhỏ hơn tổng thực tế?');
+        if (!ok) {
+          setIsSubmitting(false);
+          return;
+        }
+      }
 
       const saleLines = [...cart.map(c => ({ ...c, paymentMethod }))];
       if (laborFee !== 0) {
@@ -442,6 +451,11 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
                 onChange={(e: any) => handleTotalCustomerPayChange(Number(e.target.value))}
                 className="text-right font-bold mt-2"
               />
+              {isTotalLowerThanActual && (
+                <div className="text-[11px] text-orange-600 font-semibold mt-1">
+                  ⚠ Đơn giá chính xác là số_kg x đơn_giá = tổng_tiền, hãy cân nhắc kỹ.
+                </div>
+              )}
             </div>
          </div>
          <Button 

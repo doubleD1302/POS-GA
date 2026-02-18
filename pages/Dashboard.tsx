@@ -56,6 +56,7 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
   const bankSettings: BankSettings | null = db.getBankSettings();
   const draftBaseTotal = (Number(poKg) > 0 ? Number(poKg) : Number(poCon)) * ((Number(poPrice) || 0) * 1000);
   const draftTotal = draftBaseTotal + (Number(deliveryLaborFee) || 0);
+  const isDeliveryTotalLowerThanActual = draftTotal < draftBaseTotal;
 
   const refreshStats = () => {
     const data = db.getDashboardStats();
@@ -283,6 +284,11 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
     if (!poName || !poProduct || !poTime) return alert('Vui lòng nhập đủ khách hàng, hàng hoá và thời gian giao.');
     if (qtyCon <= 0 && qtyKg <= 0) return alert('Cần nhập ít nhất Số con hoặc Số kg.');
     if (unitPrice <= 0) return alert('Vui lòng nhập đơn giá hợp lệ để xuất hoá đơn.');
+
+    if (isDeliveryTotalLowerThanActual) {
+      const ok = window.confirm('Đơn giá chính xác là số_kg x đơn_giá = tổng_tiền, hãy cân nhắc kỹ. Bạn vẫn muốn lưu đơn với tổng khách phải trả nhỏ hơn tổng thực tế?');
+      if (!ok) return;
+    }
 
     const paidAmount = deliveryPaymentMethod === PaymentMethod.DEBT ? 0 : orderTotal;
 
@@ -768,6 +774,11 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
                   setDeliveryLaborFee(totalCustomerPay - draftBaseTotal);
                 }}
               />
+              {isDeliveryTotalLowerThanActual && (
+                <div className="text-[11px] text-orange-600 font-semibold -mt-1">
+                  ⚠ Đơn giá chính xác là số_kg x đơn_giá = tổng_tiền, hãy cân nhắc kỹ.
+                </div>
+              )}
               {deliveryPaymentMethod !== PaymentMethod.DEBT && Number(poCon) <= 0 && Number(draftTotal) > 0 && Number(poPrice) > 0 && (
                 <div className="text-xs text-gray-600 -mt-1">
                   Tự tính khối lượng: {Math.max(0, ((Number(draftTotal) || 0) - (Number(deliveryLaborFee) || 0)) / ((Number(poPrice) || 0) * 1000)).toFixed(3)} kg
