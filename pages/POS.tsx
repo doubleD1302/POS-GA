@@ -25,6 +25,7 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
   const [qtyKg, setQtyKg] = useState('');
   const [qtyCon, setQtyCon] = useState('');
   const [price, setPrice] = useState('');
+  const [itemPaidAmount, setItemPaidAmount] = useState('');
 
   // Add Customer Modal
   const [isAddCustModalOpen, setIsAddCustModalOpen] = useState(false);
@@ -75,6 +76,17 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
     }
   }, [paymentMethod, totalAmount]);
 
+  useEffect(() => {
+    const paid = Number(itemPaidAmount) || 0;
+    const unitPrice = (Number(price) || 0) * 1000;
+
+    if (paid > 0 && unitPrice > 0) {
+      const inferredKg = paid / unitPrice;
+      setQtyKg(inferredKg.toFixed(3).replace(/\.0+$/, '').replace(/(\.\d*[1-9])0+$/, '$1'));
+      setQtyCon('');
+    }
+  }, [itemPaidAmount, price]);
+
   const openProductModal = (prod: Product) => {
     setActiveProduct(prod);
     setIsManualItem(false);
@@ -85,6 +97,7 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
     
     setQtyKg('');
     setQtyCon('');
+    setItemPaidAmount('');
     setUseManualPrice(false);
   };
 
@@ -95,6 +108,7 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
     setPrice('');
     setQtyKg('');
     setQtyCon('');
+    setItemPaidAmount('');
     setUseManualPrice(true);
   }
 
@@ -133,6 +147,7 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
     }]);
 
     setActiveProduct(null);
+    setItemPaidAmount('');
   };
 
   const removeFromCart = (index: number) => {
@@ -497,6 +512,19 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
                     </div>
                 )}
             </div>
+
+            <Input
+              label="Khách trả (VND)"
+              type="number"
+              placeholder="Nhập số tiền để tự tính kg"
+              value={itemPaidAmount}
+              onChange={(e: any) => setItemPaidAmount(e.target.value)}
+            />
+            {Number(itemPaidAmount) > 0 && Number(price) > 0 && (
+              <div className="text-xs text-gray-500 -mt-2">
+                Tự tính: {((Number(itemPaidAmount) || 0) / ((Number(price) || 0) * 1000)).toFixed(3)} kg
+              </div>
+            )}
 
             <Button className="w-full mt-2" onClick={addToCart}>Thêm vào giỏ</Button>
          </div>
