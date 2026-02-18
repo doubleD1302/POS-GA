@@ -537,9 +537,8 @@ class Database {
     const { saleMovements } = this.rebuildBatchesAndExportCogs(invoices, rawBatches);
     const importMovements = this.buildImportMovements(invoices);
     const adjustmentMovements = this.buildAdjustmentMovements(rawBatches, products);
-    const manualMovements = this.getManualStockMovements();
 
-    const all = [...manualMovements, ...importMovements, ...adjustmentMovements, ...saleMovements];
+    const all = [...importMovements, ...adjustmentMovements, ...saleMovements];
     const seen = new Set<string>();
     const movements = all
       .filter(item => {
