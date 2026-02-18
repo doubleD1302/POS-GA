@@ -11,16 +11,9 @@ if (!supabaseUrl || !supabaseKey) {
 
 export const supabase = createClient(supabaseUrl, supabaseKey);
 
-// --- DỮ LIỆU MẪU (SEED DATA) ---
-const SEED_PRODUCTS: Product[] = [
-  { id: 'p1', name: 'Gà Ta Thả Vườn', priceMale: 110000, priceFemale: 90000, costMale: 85000, costFemale: 70000 },
-  { id: 'p2', name: 'Gà Ri Lai', priceMale: 95000, priceFemale: 85000, costMale: 70000, costFemale: 60000 },
-]
-
-const SEED_PARTNERS: Partner[] = [
-  { id: 's1', name: 'Trại Gà Ba Vì', phone: '0901234567', type: PartnerType.SUPPLIER, supplierCategory: 'FARM', debt: 0 },
-  { id: 'c1', name: 'Khách Lẻ', phone: '', type: PartnerType.CUSTOMER, debt: 0 },
-];
+// --- KHỞI TẠO DỮ LIỆU TRỐNG ---
+const INITIAL_PRODUCTS: Product[] = [];
+const INITIAL_PARTNERS: Partner[] = [];
 
 const BASE_KEYS = {
   PRODUCTS: 'products',
@@ -281,32 +274,22 @@ class Database {
   // --- CÁC HÀM GET/SET LOGIC NGHIỆP VỤ (GIỮ NGUYÊN LOGIC, CHỈ GỌI LOAD/SAVE) ---
 
   getProducts(): Product[] {
-    let products = this.load<Product[]>(BASE_KEYS.PRODUCTS, []);
-    if (products.length === 0) {
-        // Chỉ save seed data nếu thực sự chưa có gì (tránh ghi đè khi mạng lag)
-        // Logic ở đây: Trả về seed để hiển thị, nhưng chờ người dùng tương tác mới save
-        return SEED_PRODUCTS; 
-    }
-    return products;
+    return this.load<Product[]>(BASE_KEYS.PRODUCTS, []);
   }
   
   // Hàm này để init lần đầu cho shop mới
   async seedNewBusiness() {
-      console.log("🌱 Đang khởi tạo dữ liệu mẫu lên Cloud...");
-      // Dùng Promise.all để lưu 3 cái cùng lúc cho nhanh
+      console.log("🌱 Đang khởi tạo dữ liệu trống lên Cloud...");
       await Promise.all([
-        this.save(BASE_KEYS.PRODUCTS, SEED_PRODUCTS),
-        this.save(BASE_KEYS.PARTNERS, SEED_PARTNERS),
+        this.save(BASE_KEYS.PRODUCTS, INITIAL_PRODUCTS),
+        this.save(BASE_KEYS.PARTNERS, INITIAL_PARTNERS),
         this.save(BASE_KEYS.START_DATE, new Date().toISOString().split('T')[0])
       ]);
-      console.log("✅ Đã khởi tạo xong dữ liệu mẫu!");
+      console.log("✅ Đã khởi tạo xong dữ liệu trống!");
   }
 
   getPartners(type?: PartnerType): Partner[] {
     let partners = this.load<Partner[]>(BASE_KEYS.PARTNERS, []);
-    if (partners.length === 0 && !this.checkBusinessExists(this.businessId)) {
-        return SEED_PARTNERS;
-    }
     if (type) return partners.filter(p => p.type === type);
     return partners;
   }

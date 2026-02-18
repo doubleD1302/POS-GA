@@ -2054,6 +2054,7 @@ function PartnersPage() {
 
   const debtFilterLabel = debtFilter === 'HAS_DEBT' ? 'Có nợ' : debtFilter === 'NO_DEBT' ? 'Hết nợ' : 'Mọi công nợ';
   const nameFilterLabel = nameFilter === 'A_Z' ? 'Tên A → Z' : nameFilter === 'Z_A' ? 'Tên Z → A' : 'Mặc định';
+  const hasAnyPartnerData = db.getPartners().length > 0;
 
   // --- Logic Detail & Pay ---
   const handleOpenDetail = (p: Partner) => {
@@ -2192,7 +2193,19 @@ function PartnersPage() {
 
        {/* Partner List */}
        <div className="space-y-3">
-         {partners.map(p => (
+         {partners.length === 0 ? (
+           hasAnyPartnerData ? (
+             <div className="rounded-xl border border-dashed border-gray-300 bg-white p-4 text-center text-sm text-gray-600">
+               Không có đối tác phù hợp với bộ lọc hiện tại.
+             </div>
+           ) : (
+             <div className="rounded-xl border border-dashed border-brand-200 bg-white p-5 text-center">
+               <h3 className="text-base font-bold text-gray-800 mb-2">Chưa có dữ liệu đối tác</h3>
+               <p className="text-sm text-gray-600 mb-4">Bấm <span className="font-bold">+ Thêm Mới</span> để thêm khách hàng hoặc nhà cung cấp đầu tiên.</p>
+               <Button onClick={(e: any) => handleOpenEdit(e)} className="text-sm px-4 py-2">+ Thêm Mới</Button>
+             </div>
+           )
+         ) : partners.map(p => (
            <div key={p.id} onClick={() => handleOpenDetail(p)} className="surface-card p-3 rounded-lg flex justify-between items-center active:bg-blue-50 cursor-pointer transition-colors hover:border-blue-200">
              <div>
                <div className="font-bold text-gray-800 flex items-center gap-2">

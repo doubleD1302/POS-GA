@@ -359,6 +359,13 @@ export default function Inventory() {
       </div>
 
       {/* DANH SÁCH GÀ (DẠNG TỐI GIẢN) */}
+      {products.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-brand-200 bg-white p-5 text-center">
+          <h3 className="text-base font-bold text-gray-800 mb-2">Chưa có dữ liệu loại gà</h3>
+          <p className="text-sm text-gray-600 mb-4">Bấm <span className="font-bold">+ Thêm Gà</span> để tạo loại gà đầu tiên, sau đó nhập hàng để bắt đầu quản lý tồn kho.</p>
+          <Button onClick={() => handleOpenModal()} className="text-sm px-4 py-2">+ Thêm Gà</Button>
+        </div>
+      ) : (
       <div className="space-y-3">
            {products.map((p) => {
              const stock = getStock(p.id);
@@ -468,7 +475,8 @@ export default function Inventory() {
                )}
              </div>
            )})}
-      </div>
+         </div>
+         )}
 
       {/* MODAL 1: Cài đặt sản phẩm (Giá/Tên) */}
       <Modal 
