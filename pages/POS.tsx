@@ -14,7 +14,6 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [cart, setCart] = useState<any[]>([]);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(PaymentMethod.CASH);
-  const [paidAmount, setPaidAmount] = useState(0);
   const [laborFee, setLaborFee] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [useManualPrice, setUseManualPrice] = useState(false);
@@ -68,15 +67,6 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
 
   const totalAmount = cart.reduce((sum, item) => sum + item.amount, 0);
   const finalTotalAmount = totalAmount + (Number(laborFee) || 0);
-
-  // Auto-update paidAmount when method changes
-  useEffect(() => {
-    if (paymentMethod === PaymentMethod.DEBT) {
-      setPaidAmount(0);
-    } else {
-      setPaidAmount(finalTotalAmount);
-    }
-  }, [paymentMethod, finalTotalAmount]);
 
   useEffect(() => {
     if (cart.length === 0 && laborFee !== 0) {
@@ -175,6 +165,7 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
     try {
       const selectedCustomer = customers.find(c => c.id === selectedCustomerId);
       if (selectedCustomer) db.saveQuickCustomer(selectedCustomer.name, selectedCustomer.phone);
+      const paidAmount = paymentMethod === PaymentMethod.DEBT ? 0 : finalTotalAmount;
 
       const saleLines = [...cart.map(c => ({ ...c, paymentMethod }))];
       if (laborFee > 0) {
@@ -200,7 +191,6 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
       alert("Bán hàng thành công!");
       setCart([]);
       setLaborFee(0);
-      setPaidAmount(0);
       setPaymentMethod(PaymentMethod.CASH);
       navigate('dashboard');
     } catch (e) {
@@ -226,7 +216,7 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
     // Format info: "TenKhachHang"
     const info = normalize(customerName).substring(0, 50); 
 
-    const transferAmount = Math.max(0, Number(paidAmount) || Number(finalTotalAmount) || 0);
+    const transferAmount = Math.max(0, Number(finalTotalAmount) || 0);
     const amountParam = transferAmount > 0 ? `amount=${transferAmount}&` : '';
     return `https://img.vietqr.io/image/${bankId}-${accountNo}-${template}.png?${amountParam}addInfo=${encodeURIComponent(info)}`;
   };
@@ -452,14 +442,6 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
                 onChange={(e: any) => handleTotalCustomerPayChange(Number(e.target.value))}
                 className="text-right font-bold mt-2"
               />
-                 <Input 
-                    label="Khách trả"
-                    type="number" 
-                    value={paidAmount} 
-                    onChange={(e: any) => setPaidAmount(Number(e.target.value))} 
-                className="text-right font-bold mt-2"
-                    disabled={paymentMethod === PaymentMethod.DEBT}
-                 />
             </div>
          </div>
          <Button 
@@ -564,7 +546,7 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
             </div>
 
             <Input
-              label="Khách trả (VND)"
+              label="Tổng khách phải trả (VND)"
               type="number"
               placeholder="Nhập số tiền để tự tính kg"
               value={itemPaidAmount}

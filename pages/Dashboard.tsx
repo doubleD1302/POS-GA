@@ -29,7 +29,6 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
   const [quickCustomerOptions, setQuickCustomerOptions] = useState<{ name: string; phone?: string }[]>([]);
   const [showDeliveryPayment, setShowDeliveryPayment] = useState(false);
   const [deliveryPaymentMethod, setDeliveryPaymentMethod] = useState<PaymentMethod>(PaymentMethod.CASH);
-  const [deliveryPaidAmount, setDeliveryPaidAmount] = useState(0);
   const [deliveryLaborFee, setDeliveryLaborFee] = useState(0);
   const [isDeliveryQrPreviewOpen, setIsDeliveryQrPreviewOpen] = useState(false);
   const [isAiChatOpen, setIsAiChatOpen] = useState(false);
@@ -55,6 +54,8 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
   ]));
   const geminiModels = aiService.getGeminiModels();
   const bankSettings: BankSettings | null = db.getBankSettings();
+  const draftBaseTotal = (Number(poKg) > 0 ? Number(poKg) : Number(poCon)) * ((Number(poPrice) || 0) * 1000);
+  const draftTotal = draftBaseTotal + (Number(deliveryLaborFee) || 0);
 
   const refreshStats = () => {
     const data = db.getDashboardStats();
@@ -82,7 +83,7 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
     if (!showDeliveryPayment) return;
     if (deliveryPaymentMethod === PaymentMethod.DEBT) return;
 
-    const paid = Number(deliveryPaidAmount) || 0;
+    const paid = Number(draftTotal) || 0;
     const laborFee = Number(deliveryLaborFee) || 0;
     const unitPrice = (Number(poPrice) || 0) * 1000;
     const qtyCon = Number(poCon) || 0;
@@ -93,20 +94,7 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
 
     const inferredKg = netChickenAmount / unitPrice;
     setPoKg(inferredKg.toFixed(3).replace(/\.0+$/, '').replace(/(\.\d*[1-9])0+$/, '$1'));
-  }, [showDeliveryPayment, deliveryPaymentMethod, deliveryPaidAmount, deliveryLaborFee, poPrice, poCon, poKg]);
-
-  useEffect(() => {
-    if (!showDeliveryPayment) return;
-    if (deliveryPaymentMethod === PaymentMethod.DEBT) {
-      if (deliveryPaidAmount !== 0) setDeliveryPaidAmount(0);
-      return;
-    }
-
-    const nextTotal = draftTotal > 0 ? draftTotal : 0;
-    if (Number(deliveryPaidAmount) !== nextTotal) {
-      setDeliveryPaidAmount(nextTotal);
-    }
-  }, [showDeliveryPayment, deliveryPaymentMethod, poKg, poCon, poPrice, deliveryLaborFee]);
+  }, [showDeliveryPayment, deliveryPaymentMethod, draftTotal, deliveryLaborFee, poPrice, poCon, poKg]);
 
   if (!stats) return <div className="p-4">Đang tải...</div>;
 
@@ -171,16 +159,13 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
       setPoProduct(order.productNote); setPoCon(order.qtyCon?.toString() || ''); setPoKg(order.qtyKg?.toString() || '');
       setPoPrice(order.unitPrice ? String((order.unitPrice || 0) / 1000) : '');
       setPoTime(order.deliveryTime); setPoNote(order.note || '');
-      const total = ((Number(order.qtyKg) || 0) > 0 ? (Number(order.qtyKg) || 0) : (Number(order.qtyCon) || 0)) * (Number(order.unitPrice) || 0);
       setDeliveryPaymentMethod(PaymentMethod.CASH);
-      setDeliveryPaidAmount(total);
       setDeliveryLaborFee(0);
     } else {
       setSelectedOrder(null); setPoName(''); setPoPhone(''); setPoProduct(''); setPoCon(''); setPoKg('');
       setPoPrice('');
       const now = new Date(); now.setHours(now.getHours() + 1); now.setMinutes(0); setPoTime(now.toISOString().slice(0, 16)); setPoNote('');
       setDeliveryPaymentMethod(PaymentMethod.CASH);
-      setDeliveryPaidAmount(0);
       setDeliveryLaborFee(0);
     }
     setShowDeliveryPayment(false);
@@ -299,13 +284,7 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
     if (qtyCon <= 0 && qtyKg <= 0) return alert('Cần nhập ít nhất Số con hoặc Số kg.');
     if (unitPrice <= 0) return alert('Vui lòng nhập đơn giá hợp lệ để xuất hoá đơn.');
 
-    let paidAmount = Number(deliveryPaidAmount) || 0;
-    if (deliveryPaymentMethod === PaymentMethod.DEBT) {
-      paidAmount = 0;
-    }
-    if (paidAmount < 0 || paidAmount > orderTotal) {
-      return alert('Số tiền khách trả không hợp lệ.');
-    }
+    const paidAmount = deliveryPaymentMethod === PaymentMethod.DEBT ? 0 : orderTotal;
 
     let customer = customerOptions.find(c => (poPhone && c.phone === poPhone) || c.name.trim().toLowerCase() === poName.trim().toLowerCase());
     if (!customer) {
@@ -501,7 +480,7 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
     const normalize = (str: string) => (str || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ');
     const customerName = poName || 'Khach hang';
     const template = bankSettings.template || 'compact';
-    const transferAmount = Math.max(0, Number(deliveryPaidAmount) || Number(draftTotal) || 0);
+    const transferAmount = Math.max(0, Number(draftTotal) || 0);
     const info = normalize(customerName).substring(0, 50);
     const amountParam = transferAmount > 0 ? `amount=${transferAmount}&` : '';
     return `https://img.vietqr.io/image/${bankSettings.bankId}-${bankSettings.accountNo}-${template}.png?${amountParam}addInfo=${encodeURIComponent(info)}`;
@@ -528,8 +507,6 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
       window.open(qr, '_blank', 'noopener,noreferrer');
     }
   };
-  const draftBaseTotal = (Number(poKg) > 0 ? Number(poKg) : Number(poCon)) * ((Number(poPrice) || 0) * 1000);
-  const draftTotal = draftBaseTotal + (Number(deliveryLaborFee) || 0);
   const deliveryQrLink = getDeliveryQrLink();
   const customerSuggestions = Array.from(new Set([
     ...customerOptions.map(c => (c.name || '').trim()).filter(Boolean),
@@ -761,17 +738,17 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
               <div className="grid grid-cols-3 gap-2">
                 <button
                   type="button"
-                  onClick={() => { setDeliveryPaymentMethod(PaymentMethod.CASH); setDeliveryPaidAmount(draftTotal); }}
+                  onClick={() => { setDeliveryPaymentMethod(PaymentMethod.CASH); }}
                   className={`py-2 text-xs font-bold rounded border ${deliveryPaymentMethod === PaymentMethod.CASH ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-600 border-gray-300'}`}
                 >Tiền mặt</button>
                 <button
                   type="button"
-                  onClick={() => { setDeliveryPaymentMethod(PaymentMethod.TRANSFER); setDeliveryPaidAmount(draftTotal); }}
+                  onClick={() => { setDeliveryPaymentMethod(PaymentMethod.TRANSFER); }}
                   className={`py-2 text-xs font-bold rounded border ${deliveryPaymentMethod === PaymentMethod.TRANSFER ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300'}`}
                 >Chuyển khoản</button>
                 <button
                   type="button"
-                  onClick={() => { setDeliveryPaymentMethod(PaymentMethod.DEBT); setDeliveryPaidAmount(0); }}
+                  onClick={() => { setDeliveryPaymentMethod(PaymentMethod.DEBT); }}
                   className={`py-2 text-xs font-bold rounded border ${deliveryPaymentMethod === PaymentMethod.DEBT ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-gray-600 border-gray-300'}`}
                 >Ghi nợ</button>
               </div>
@@ -791,16 +768,9 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
                   setDeliveryLaborFee(Math.max(0, totalCustomerPay - draftBaseTotal));
                 }}
               />
-              <Input
-                label="Khách trả"
-                type="number"
-                value={deliveryPaidAmount}
-                onChange={(e: any) => setDeliveryPaidAmount(Number(e.target.value))}
-                disabled={deliveryPaymentMethod === PaymentMethod.DEBT}
-              />
-              {deliveryPaymentMethod !== PaymentMethod.DEBT && Number(poCon) <= 0 && Number(deliveryPaidAmount) > 0 && Number(poPrice) > 0 && (
+              {deliveryPaymentMethod !== PaymentMethod.DEBT && Number(poCon) <= 0 && Number(draftTotal) > 0 && Number(poPrice) > 0 && (
                 <div className="text-xs text-gray-600 -mt-1">
-                  Tự tính khối lượng: {Math.max(0, ((Number(deliveryPaidAmount) || 0) - (Number(deliveryLaborFee) || 0)) / ((Number(poPrice) || 0) * 1000)).toFixed(3)} kg
+                  Tự tính khối lượng: {Math.max(0, ((Number(draftTotal) || 0) - (Number(deliveryLaborFee) || 0)) / ((Number(poPrice) || 0) * 1000)).toFixed(3)} kg
                 </div>
               )}
               {deliveryPaymentMethod === PaymentMethod.TRANSFER && (
