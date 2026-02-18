@@ -394,6 +394,24 @@ class Database {
       cogsByInvoice[invoice.id] = invoiceCogs;
     });
 
+    const manualDeltasByBatch = this.getManualStockMovements().reduce((acc, movement) => {
+      if (!movement.batchId) return acc;
+      if (!acc[movement.batchId]) {
+        acc[movement.batchId] = { deltaCon: 0, deltaKg: 0 };
+      }
+      acc[movement.batchId].deltaCon += Number(movement.deltaCon) || 0;
+      acc[movement.batchId].deltaKg += Number(movement.deltaKg) || 0;
+      return acc;
+    }, {} as Record<string, { deltaCon: number; deltaKg: number }>);
+
+    clonedBatches.forEach((batch) => {
+      const delta = manualDeltasByBatch[batch.id];
+      if (!delta) return;
+      batch.qtyRemCon = Math.max(0, (Number(batch.qtyRemCon) || 0) + delta.deltaCon);
+      batch.qtyRemKg = Math.max(0, (Number(batch.qtyRemKg) || 0) + delta.deltaKg);
+      batch.status = (batch.qtyRemKg <= 0.1 && batch.qtyRemCon <= 0) ? 'CLOSED' : 'OPEN';
+    });
+
     return { batches: clonedBatches, cogsByInvoice, saleMovements };
   }
 
