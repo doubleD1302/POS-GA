@@ -286,7 +286,7 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
     if (unitPrice <= 0) return alert('Vui lòng nhập đơn giá hợp lệ để xuất hoá đơn.');
 
     if (isDeliveryTotalLowerThanActual) {
-      const ok = window.confirm('Đơn giá chính xác là số_kg x đơn_giá = tổng_tiền, hãy cân nhắc kỹ. Bạn vẫn muốn lưu đơn với tổng khách phải trả nhỏ hơn tổng thực tế?');
+      const ok = window.confirm('Đơn giá chính xác là số_kg(hệ thống tự điền) x đơn_giá(hệ thống tự điền) = tổng_tiền( hệ thống tự điền), hãy cân nhắc kỹ. Bạn vẫn muốn lưu đơn với tổng khách phải trả nhỏ hơn tổng thực tế?');
       if (!ok) return;
     }
 
@@ -776,7 +776,7 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
               />
               {isDeliveryTotalLowerThanActual && (
                 <div className="text-[11px] text-orange-600 font-semibold -mt-1">
-                  ⚠ Đơn giá chính xác là số_kg x đơn_giá = tổng_tiền, hãy cân nhắc kỹ.
+                  ⚠ Đơn giá chính xác là số_kg(hệ thống tự điền) x đơn_giá(hệ thống tự điền) = tổng_tiền( hệ thống tự điền), hãy cân nhắc kỹ.
                 </div>
               )}
               {deliveryPaymentMethod !== PaymentMethod.DEBT && Number(poCon) <= 0 && Number(draftTotal) > 0 && Number(poPrice) > 0 && (
