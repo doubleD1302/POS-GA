@@ -671,7 +671,7 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
                   <div>Trừ bì: <span className="font-bold text-red-600">-{item.tare.toFixed(2)} kg</span></div>
                   <div className="col-span-2 border-b border-gray-100 my-1"></div>
                   <div>Thực nhập (sau bì): <span className="font-bold text-blue-600">{item.rawKg.toFixed(2)} kg</span></div>
-                  <div>Trừ no 2%: <span className="font-bold text-red-600">-{item.debtDeductKg.toFixed(2)} kg</span></div>
+                  <div>Tổng trừ no 2%: <span className="font-bold text-red-600">-{item.debtDeductKg.toFixed(2)} kg</span></div>
                   <div className="col-span-2">Thực nhập kho: <span className="font-bold text-emerald-600">{item.kg.toFixed(2)} kg</span></div>
                   <div>Số lượng: <span className="font-bold text-blue-600">{item.con} con</span></div>
                   <ImportDetailBlock details={item.details} className="col-span-2 mt-2" />
@@ -1708,16 +1708,25 @@ function CashbookPage() {
                             </div>
 
                             <div className="p-2">
-                              {selectedInvoice.lines.map((line, idx) => (
+                              {selectedInvoice.lines.map((line, idx) => {
+                                const grossKg = Number(line.gross || line.qtyKg) || 0;
+                                const tareKg = Number(line.tare || 0) || 0;
+                                const importedKg = Number(line.qtyKg) || 0;
+                                const netAfterTareKg = Math.max(grossKg - tareKg, 0);
+                                const debtDeductKg = Math.max(netAfterTareKg - importedKg, 0);
+
+                                return (
                                 <div key={idx} className="mb-3 border border-gray-200 rounded-md overflow-hidden text-sm surface-card">
                                   <div className="bg-gray-100 px-3 py-2 font-bold text-gray-800">
                                     {idx + 1}. {line.productName} ({line.gender === 'FEMALE' ? 'Mái' : 'Trống'})
                                   </div>
                                   <div className="p-3 grid grid-cols-2 gap-y-1 gap-x-4 text-gray-600">
-                                    <div>Tổng cân: <span className="font-bold text-gray-800">{Number(line.gross || line.qtyKg).toFixed(2)} kg</span></div>
-                                    <div>Trừ bì: <span className="font-bold text-red-600">-{Number(line.tare || 0).toFixed(2)} kg</span></div>
+                                    <div>Tổng cân: <span className="font-bold text-gray-800">{grossKg.toFixed(2)} kg</span></div>
+                                    <div>Trừ bì: <span className="font-bold text-red-600">-{tareKg.toFixed(2)} kg</span></div>
                                     <div className="col-span-2 border-b border-gray-100 my-1"></div>
-                                    <div>Thực nhập: <span className="font-bold text-blue-600">{line.qtyKg.toFixed(2)} kg</span></div>
+                                    <div>Thực nhập (sau bì): <span className="font-bold text-blue-600">{netAfterTareKg.toFixed(2)} kg</span></div>
+                                    <div>Tổng trừ no 2%: <span className="font-bold text-red-600">-{debtDeductKg.toFixed(2)} kg</span></div>
+                                    <div className="col-span-2">Thực nhập kho: <span className="font-bold text-emerald-600">{importedKg.toFixed(2)} kg</span></div>
                                     <div>Số lượng: <span className="font-bold text-blue-600">{line.qtyCon} con</span></div>
                                     <ImportDetailBlock details={line.details} className="col-span-2 mt-2" />
                                     <div className="col-span-2 border-t border-gray-200 mt-2 pt-2 flex justify-between items-center">
@@ -1726,7 +1735,7 @@ function CashbookPage() {
                                     </div>
                                   </div>
                                 </div>
-                              ))}
+                              )})}
                             </div>
 
                             <div className="bg-gray-800 text-white p-4">
@@ -1735,8 +1744,26 @@ function CashbookPage() {
                                 <span>{selectedInvoice.lines.reduce((sum, line) => sum + Number(line.tare || 0), 0).toFixed(2)} kg</span>
                               </div>
                               <div className="flex justify-between items-center text-sm mb-3">
-                                <span className="text-gray-300">Tổng thực nhập:</span>
-                                <span>{selectedInvoice.lines.reduce((sum, line) => sum + line.qtyKg, 0).toFixed(2)} kg</span>
+                                <span className="text-gray-300">Tổng thực nhập (sau bì):</span>
+                                <span>{selectedInvoice.lines.reduce((sum, line) => {
+                                  const grossKg = Number(line.gross || line.qtyKg) || 0;
+                                  const tareKg = Number(line.tare || 0) || 0;
+                                  return sum + Math.max(grossKg - tareKg, 0);
+                                }, 0).toFixed(2)} kg</span>
+                              </div>
+                              <div className="flex justify-between items-center text-sm mb-3">
+                                <span className="text-gray-300">Tổng trừ no 2%:</span>
+                                <span>-{selectedInvoice.lines.reduce((sum, line) => {
+                                  const grossKg = Number(line.gross || line.qtyKg) || 0;
+                                  const tareKg = Number(line.tare || 0) || 0;
+                                  const importedKg = Number(line.qtyKg) || 0;
+                                  const netAfterTareKg = Math.max(grossKg - tareKg, 0);
+                                  return sum + Math.max(netAfterTareKg - importedKg, 0);
+                                }, 0).toFixed(2)} kg</span>
+                              </div>
+                              <div className="flex justify-between items-center text-sm mb-3">
+                                <span className="text-gray-300">Tổng nhập kho:</span>
+                                <span>{selectedInvoice.lines.reduce((sum, line) => sum + (Number(line.qtyKg) || 0), 0).toFixed(2)} kg</span>
                               </div>
                               <div className="border-t border-gray-600 pt-3 flex justify-between items-center">
                                 <span className="font-bold text-lg uppercase">Tổng Tiền:</span>
