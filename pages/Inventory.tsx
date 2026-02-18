@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { db } from '../services/db';
-import { Batch, Product } from '../types';
+import { Batch, Product, StockMovement } from '../types';
 import { Button, Modal, Input, SecureValue } from '../components/ui';
 import { formatCurrency, formatDate } from '../constants';
 
 export default function Inventory() {
   const [batches, setBatches] = useState<Batch[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [stockMovements, setStockMovements] = useState<StockMovement[]>([]);
   
   // State để quản lý việc mở rộng/thu gọn chi tiết gà
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -36,6 +37,25 @@ export default function Inventory() {
   const loadData = () => {
     setProducts(db.getProducts());
     setBatches(db.getBatches());
+    setStockMovements(db.getStockMovements(200));
+  };
+
+  const today = new Date().toISOString().split('T')[0];
+  const todayMovements = stockMovements.filter(m => m.occurredAt.startsWith(today));
+  const todayDeltaKg = todayMovements.reduce((sum, m) => sum + m.deltaKg, 0);
+  const todayDeltaCon = todayMovements.reduce((sum, m) => sum + m.deltaCon, 0);
+
+  const movementSourceLabel = (source: StockMovement['source']) => {
+    if (source === 'IMPORT') return 'Nhập hàng';
+    if (source === 'SALE') return 'Xuất bán';
+    if (source === 'ADJUSTMENT') return 'Điều chỉnh';
+    return 'Sửa tay';
+  };
+
+  const formatMovementTime = (iso: string) => {
+    const date = new Date(iso);
+    if (isNaN(date.getTime())) return iso;
+    return date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
   };
 
   // --- LOGIC SẢN PHẨM ---
@@ -172,6 +192,33 @@ export default function Inventory() {
         <Button onClick={() => handleOpenModal()} className="text-sm px-3 py-1">+ Thêm Gà</Button>
       </div>
 
+      {/* BIẾN ĐỘNG KHO HÔM NAY */}
+      <div className="rounded-xl border border-brand-100 bg-white shadow-sm mb-4">
+        <div className="px-4 py-3 border-b border-brand-100 bg-brand-50">
+          <h2 className="font-bold text-brand-700">Biến động kho hôm nay</h2>
+          <div className="text-xs text-gray-600 mt-1">
+            {todayMovements.length} giao dịch · Kg: <span className={`font-bold ${todayDeltaKg >= 0 ? 'text-green-600' : 'text-red-600'}`}>{todayDeltaKg >= 0 ? '+' : ''}{todayDeltaKg.toFixed(1)}</span> · Con: <span className={`font-bold ${todayDeltaCon >= 0 ? 'text-green-600' : 'text-red-600'}`}>{todayDeltaCon >= 0 ? '+' : ''}{todayDeltaCon}</span>
+          </div>
+        </div>
+        <div className="max-h-64 overflow-y-auto divide-y divide-gray-100">
+          {todayMovements.length === 0 ? (
+            <div className="p-4 text-sm text-gray-500">Hôm nay chưa có biến động kho.</div>
+          ) : (
+            todayMovements.slice(0, 15).map((movement) => (
+              <div key={movement.id} className="px-4 py-2 text-sm grid grid-cols-12 gap-2 items-center">
+                <div className="col-span-4 font-semibold text-gray-800 truncate">{movement.productName}</div>
+                <div className="col-span-2 text-xs text-gray-500">{movement.gender === 'MALE' ? 'Trống' : 'Mái'}</div>
+                <div className="col-span-3 text-xs text-gray-600">{movementSourceLabel(movement.source)}</div>
+                <div className="col-span-2 text-right font-mono">
+                  <span className={movement.deltaCon >= 0 ? 'text-green-600' : 'text-red-600'}>{movement.deltaCon >= 0 ? '+' : ''}{movement.deltaCon} con</span>
+                </div>
+                <div className="col-span-1 text-[11px] text-gray-400 text-right">{formatMovementTime(movement.occurredAt)}</div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
       {/* DANH SÁCH GÀ (DẠNG TỐI GIẢN) */}
       <div className="space-y-3">
            {products.map((p) => {
@@ -282,6 +329,36 @@ export default function Inventory() {
                )}
              </div>
            )})}
+      </div>
+
+      {/* LỊCH SỬ BIẾN ĐỘNG KHO */}
+      <div className="rounded-xl border border-gray-200 bg-white shadow-sm mt-5 overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100">
+          <h2 className="font-bold text-gray-800">Lịch sử biến động kho</h2>
+          <p className="text-xs text-gray-500 mt-1">Lưu tự động để tra cứu nhập/xuất/điều chỉnh gần đây.</p>
+        </div>
+        <div className="max-h-72 overflow-y-auto divide-y divide-gray-100">
+          {stockMovements.length === 0 ? (
+            <div className="p-4 text-sm text-gray-500">Chưa có lịch sử biến động kho.</div>
+          ) : (
+            stockMovements.slice(0, 40).map((movement) => (
+              <div key={`history-${movement.id}`} className="px-4 py-2 grid grid-cols-12 gap-2 items-center text-sm">
+                <div className="col-span-4">
+                  <div className="font-semibold text-gray-800 truncate">{movement.productName}</div>
+                  <div className="text-[11px] text-gray-500">{formatDate(movement.occurredAt)} · {movement.gender === 'MALE' ? 'Trống' : 'Mái'}</div>
+                </div>
+                <div className="col-span-3 text-xs text-gray-600">{movementSourceLabel(movement.source)}</div>
+                <div className="col-span-2 font-mono text-xs">
+                  <span className={movement.deltaKg >= 0 ? 'text-green-600' : 'text-red-600'}>{movement.deltaKg >= 0 ? '+' : ''}{movement.deltaKg.toFixed(1)} kg</span>
+                </div>
+                <div className="col-span-2 font-mono text-xs text-right">
+                  <span className={movement.deltaCon >= 0 ? 'text-green-600' : 'text-red-600'}>{movement.deltaCon >= 0 ? '+' : ''}{movement.deltaCon} con</span>
+                </div>
+                <div className="col-span-1 text-[11px] text-gray-400 text-right">{formatMovementTime(movement.occurredAt)}</div>
+              </div>
+            ))
+          )}
+        </div>
       </div>
 
       {/* MODAL 1: Cài đặt sản phẩm (Giá/Tên) */}
