@@ -29,6 +29,8 @@ export default function Inventory() {
   const [newAdjustmentInfo, setNewAdjustmentInfo] = useState<{pid: string, gender: string, title: string} | null>(null);
   const [candidateBatches, setCandidateBatches] = useState<Batch[]>([]);
   const [selectedBatchId, setSelectedBatchId] = useState('');
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [activeHistoryDate, setActiveHistoryDate] = useState<string>('');
 
   useEffect(() => {
     loadData();
@@ -44,6 +46,20 @@ export default function Inventory() {
   const todayMovements = stockMovements.filter(m => m.occurredAt.startsWith(today));
   const todayDeltaKg = todayMovements.reduce((sum, m) => sum + m.deltaKg, 0);
   const todayDeltaCon = todayMovements.reduce((sum, m) => sum + m.deltaCon, 0);
+  const historyDates = Array.from(new Set(stockMovements.map(m => m.occurredAt.split('T')[0]).filter(Boolean))).sort((a, b) => b.localeCompare(a));
+  const effectiveHistoryDate = activeHistoryDate || historyDates[0] || '';
+  const historyByActiveDate = stockMovements.filter(m => m.occurredAt.startsWith(effectiveHistoryDate));
+
+  useEffect(() => {
+    if (!historyDates.length) {
+      if (activeHistoryDate) setActiveHistoryDate('');
+      return;
+    }
+
+    if (!activeHistoryDate || !historyDates.includes(activeHistoryDate)) {
+      setActiveHistoryDate(historyDates[0]);
+    }
+  }, [stockMovements]);
 
   const movementSourceLabel = (source: StockMovement['source']) => {
     if (source === 'IMPORT') return 'Nhập hàng';
@@ -195,7 +211,15 @@ export default function Inventory() {
       {/* BIẾN ĐỘNG KHO HÔM NAY */}
       <div className="rounded-xl border border-brand-100 bg-white shadow-sm mb-4">
         <div className="px-4 py-3 border-b border-brand-100 bg-brand-50">
-          <h2 className="font-bold text-brand-700">Biến động kho hôm nay</h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="font-bold text-brand-700">Biến động kho hôm nay</h2>
+            <button
+              onClick={() => setIsHistoryOpen(prev => !prev)}
+              className="text-xs font-bold text-brand-700 hover:text-brand-900 px-2 py-1 rounded bg-white border border-brand-100"
+            >
+              {isHistoryOpen ? '▼ Lịch sử' : '▶ Lịch sử'}
+            </button>
+          </div>
           <div className="text-xs text-gray-600 mt-1">
             {todayMovements.length} giao dịch · Kg: <span className={`font-bold ${todayDeltaKg >= 0 ? 'text-green-600' : 'text-red-600'}`}>{todayDeltaKg >= 0 ? '+' : ''}{todayDeltaKg.toFixed(1)}</span> · Con: <span className={`font-bold ${todayDeltaCon >= 0 ? 'text-green-600' : 'text-red-600'}`}>{todayDeltaCon >= 0 ? '+' : ''}{todayDeltaCon}</span>
           </div>
@@ -217,6 +241,51 @@ export default function Inventory() {
             ))
           )}
         </div>
+
+        {isHistoryOpen && (
+          <div className="border-t border-gray-100 bg-gray-50">
+            <div className="px-3 py-2 border-b border-gray-100">
+              {historyDates.length === 0 ? (
+                <div className="text-xs text-gray-500">Chưa có lịch sử biến động kho.</div>
+              ) : (
+                <div className="flex gap-2 overflow-x-auto no-scrollbar">
+                  {historyDates.slice(0, 14).map((dateKey) => (
+                    <button
+                      key={dateKey}
+                      onClick={() => setActiveHistoryDate(dateKey)}
+                      className={`whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-bold border ${effectiveHistoryDate === dateKey ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-100'}`}
+                    >
+                      {formatDate(dateKey)}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="max-h-72 overflow-y-auto divide-y divide-gray-100 bg-white">
+              {historyByActiveDate.length === 0 ? (
+                <div className="p-4 text-sm text-gray-500">Không có dữ liệu trong ngày này.</div>
+              ) : (
+                historyByActiveDate.map((movement) => (
+                  <div key={`history-${movement.id}`} className="px-4 py-2 grid grid-cols-12 gap-2 items-center text-sm">
+                    <div className="col-span-4">
+                      <div className="font-semibold text-gray-800 truncate">{movement.productName}</div>
+                      <div className="text-[11px] text-gray-500">{movement.gender === 'MALE' ? 'Trống' : 'Mái'}</div>
+                    </div>
+                    <div className="col-span-3 text-xs text-gray-600">{movementSourceLabel(movement.source)}</div>
+                    <div className="col-span-2 font-mono text-xs">
+                      <span className={movement.deltaKg >= 0 ? 'text-green-600' : 'text-red-600'}>{movement.deltaKg >= 0 ? '+' : ''}{movement.deltaKg.toFixed(1)} kg</span>
+                    </div>
+                    <div className="col-span-2 font-mono text-xs text-right">
+                      <span className={movement.deltaCon >= 0 ? 'text-green-600' : 'text-red-600'}>{movement.deltaCon >= 0 ? '+' : ''}{movement.deltaCon} con</span>
+                    </div>
+                    <div className="col-span-1 text-[11px] text-gray-400 text-right">{formatMovementTime(movement.occurredAt)}</div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* DANH SÁCH GÀ (DẠNG TỐI GIẢN) */}
@@ -329,36 +398,6 @@ export default function Inventory() {
                )}
              </div>
            )})}
-      </div>
-
-      {/* LỊCH SỬ BIẾN ĐỘNG KHO */}
-      <div className="rounded-xl border border-gray-200 bg-white shadow-sm mt-5 overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-100">
-          <h2 className="font-bold text-gray-800">Lịch sử biến động kho</h2>
-          <p className="text-xs text-gray-500 mt-1">Lưu tự động để tra cứu nhập/xuất/điều chỉnh gần đây.</p>
-        </div>
-        <div className="max-h-72 overflow-y-auto divide-y divide-gray-100">
-          {stockMovements.length === 0 ? (
-            <div className="p-4 text-sm text-gray-500">Chưa có lịch sử biến động kho.</div>
-          ) : (
-            stockMovements.slice(0, 40).map((movement) => (
-              <div key={`history-${movement.id}`} className="px-4 py-2 grid grid-cols-12 gap-2 items-center text-sm">
-                <div className="col-span-4">
-                  <div className="font-semibold text-gray-800 truncate">{movement.productName}</div>
-                  <div className="text-[11px] text-gray-500">{formatDate(movement.occurredAt)} · {movement.gender === 'MALE' ? 'Trống' : 'Mái'}</div>
-                </div>
-                <div className="col-span-3 text-xs text-gray-600">{movementSourceLabel(movement.source)}</div>
-                <div className="col-span-2 font-mono text-xs">
-                  <span className={movement.deltaKg >= 0 ? 'text-green-600' : 'text-red-600'}>{movement.deltaKg >= 0 ? '+' : ''}{movement.deltaKg.toFixed(1)} kg</span>
-                </div>
-                <div className="col-span-2 font-mono text-xs text-right">
-                  <span className={movement.deltaCon >= 0 ? 'text-green-600' : 'text-red-600'}>{movement.deltaCon >= 0 ? '+' : ''}{movement.deltaCon} con</span>
-                </div>
-                <div className="col-span-1 text-[11px] text-gray-400 text-right">{formatMovementTime(movement.occurredAt)}</div>
-              </div>
-            ))
-          )}
-        </div>
       </div>
 
       {/* MODAL 1: Cài đặt sản phẩm (Giá/Tên) */}

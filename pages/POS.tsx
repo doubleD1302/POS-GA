@@ -70,7 +70,7 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
   const isTotalLowerThanActual = finalTotalAmount < totalAmount;
   const autoWarningKg = cart.reduce((sum, item) => sum + (Number(item.qtyKg) || 0), 0);
   const autoWarningPrice = autoWarningKg > 0 ? totalAmount / autoWarningKg : 0;
-  const dynamicLowerTotalWarning = `Đơn giá chính xác là số_kg(${autoWarningKg.toFixed(3)}kg) x đơn_giá(${formatCurrency(autoWarningPrice)}) = tổng_tiền(${formatCurrency(totalAmount)}), hãy cân nhắc kỹ.`;
+  const dynamicLowerTotalWarning = `Đơn giá chính xác là (${autoWarningKg.toFixed(3)}kg) x (${formatCurrency(autoWarningPrice)}) = (${formatCurrency(totalAmount)}), hãy cân nhắc kỹ.`;
 
   useEffect(() => {
     if (cart.length === 0 && laborFee !== 0) {

@@ -6,7 +6,7 @@ import Inventory from './pages/Inventory';
 import { ICONS, formatCurrency, formatDate} from './constants';
 import { db } from './services/db';
 import { Button, Input, Select, Card, Modal } from './components/ui';
-import { Partner, PartnerType, BankSettings, Invoice, CashTransaction, PreOrder, PaymentMethod, Product, Gender, SupplierCategory } from './types';
+import { Partner, PartnerType, BankSettings, Invoice, CashTransaction, PreOrder, PaymentMethod, Product, Gender, SupplierCategory, Unit } from './types';
 
 // --- LOGIN COMPONENT ---
 // --- LOGIN COMPONENT (ĐÃ SỬA ĐỂ KÍCH HOẠT ĐỒNG BỘ) ---
@@ -684,14 +684,27 @@ function CashbookPage() {
   const [selectedTxn, setSelectedTxn] = useState<CashTransaction | null>(null);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | undefined>(undefined);
   const [isEditInvoiceMode, setIsEditInvoiceMode] = useState(false);
-  const [editableLines, setEditableLines] = useState<Array<{
+  const [editCart, setEditCart] = useState<Array<{
     productId: string;
     productName: string;
     gender: Gender;
     qtyKg: number;
     qtyCon: number;
     price: number;
+    amount: number;
+    unit: Unit;
+    isManual?: boolean;
   }>>([]);
+  const [editPaymentMethod, setEditPaymentMethod] = useState<PaymentMethod>(PaymentMethod.CASH);
+  const [editLaborFee, setEditLaborFee] = useState(0);
+  const [editSaleGender, setEditSaleGender] = useState<Gender>('MALE');
+  const [editActiveProductId, setEditActiveProductId] = useState('');
+  const [editIsManualItem, setEditIsManualItem] = useState(false);
+  const [editManualName, setEditManualName] = useState('');
+  const [editQtyKg, setEditQtyKg] = useState('');
+  const [editQtyCon, setEditQtyCon] = useState('');
+  const [editPrice, setEditPrice] = useState('');
+  const [editUseManualPrice, setEditUseManualPrice] = useState(false);
   const [editReason, setEditReason] = useState('');
   const [isSavingInvoiceEdit, setIsSavingInvoiceEdit] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -957,7 +970,7 @@ function CashbookPage() {
     setSelectedTxn(txn);
     setIsEditInvoiceMode(false);
     setEditReason('');
-    setEditableLines([]);
+    setEditCart([]);
     if (txn.refId) setSelectedInvoice(db.getInvoice(txn.refId));
     else setSelectedInvoice(undefined);
   }
@@ -966,45 +979,168 @@ function CashbookPage() {
     setSelectedInvoice(undefined);
     setIsEditInvoiceMode(false);
     setEditReason('');
-    setEditableLines([]);
+    setEditCart([]);
+    setEditLaborFee(0);
+    setEditActiveProductId('');
+    setEditManualName('');
+    setEditQtyKg('');
+    setEditQtyCon('');
+    setEditPrice('');
   }
+
+  const getEditProductById = (productId: string) => productOptions.find(p => p.id === productId);
+
+  const openEditProductPicker = (productId: string) => {
+    if (productId === 'MANUAL') {
+      setEditIsManualItem(true);
+      setEditActiveProductId('MANUAL');
+      setEditManualName('');
+      setEditPrice('');
+      setEditQtyKg('');
+      setEditQtyCon('');
+      setEditUseManualPrice(true);
+      return;
+    }
+
+    const product = getEditProductById(productId);
+    if (!product) return;
+    setEditIsManualItem(false);
+    setEditActiveProductId(product.id);
+    setEditQtyKg('');
+    setEditQtyCon('');
+    setEditUseManualPrice(false);
+    const defaultPrice = editSaleGender === 'MALE' ? product.priceMale : product.priceFemale;
+    setEditPrice(((defaultPrice || 0) / 1000).toString());
+  }
+
+  const handleAddEditCartItem = () => {
+    if (!editActiveProductId) return alert('Vui lòng chọn sản phẩm cần thêm.');
+
+    const qtyKg = Number(editQtyKg) || 0;
+    const qtyCon = Number(editQtyCon) || 0;
+    if (qtyKg <= 0 && qtyCon <= 0) return alert('Nhập số kg hoặc số con.');
+
+    const priceVnd = (Number(editPrice) || 0) * 1000;
+    if (priceVnd <= 0) return alert('Đơn giá không hợp lệ.');
+
+    if (editIsManualItem && !editManualName.trim()) {
+      return alert('Vui lòng nhập tên hàng ngoài.');
+    }
+
+    let productName = '';
+    if (editIsManualItem) {
+      productName = editManualName.trim();
+      db.saveQuickItem(productName);
+    } else {
+      const prod = getEditProductById(editActiveProductId);
+      if (!prod) return alert('Không tìm thấy sản phẩm đã chọn.');
+      productName = prod.name;
+    }
+
+    const amount = (qtyKg > 0 ? qtyKg : qtyCon) * priceVnd;
+    const newItem = {
+      productId: editIsManualItem ? 'MANUAL' : editActiveProductId,
+      productName,
+      gender: editSaleGender,
+      qtyKg,
+      qtyCon,
+      price: priceVnd,
+      amount,
+      unit: qtyKg > 0 ? Unit.KG : Unit.CON,
+      isManual: editIsManualItem,
+    };
+
+    setEditCart(prev => [...prev, newItem]);
+    setEditQtyKg('');
+    setEditQtyCon('');
+    if (editIsManualItem) {
+      setEditManualName('');
+      setEditPrice('');
+    }
+  }
+
+  const handleRemoveEditCartItem = (index: number) => {
+    setEditCart(prev => prev.filter((_, idx) => idx !== index));
+  }
+
   const handleOpenEditInvoice = () => {
     if (!selectedInvoice || selectedInvoice.type !== 'EXPORT') return;
-    const lines = selectedInvoice.lines.map(line => ({
-      productId: line.productId,
-      productName: line.productName,
-      gender: line.gender || 'MALE',
-      qtyKg: Number(line.qtyKg) || 0,
-      qtyCon: Number(line.qtyCon) || 0,
-      price: Number(line.price) || 0,
-    }));
-    setEditableLines(lines);
+
+    const currentLines = selectedInvoice.lines || [];
+    const laborLine = currentLines.find(line => line.productId === 'MANUAL' && (line.productName === 'Tiền công' || line.productName === 'Giảm trừ') && (Number(line.qtyKg) || 0) === 0 && (Number(line.qtyCon) || 0) === 1);
+
+    const cartLines = currentLines
+      .filter(line => line !== laborLine)
+      .map(line => {
+        const qtyKg = Number(line.qtyKg) || 0;
+        const qtyCon = Number(line.qtyCon) || 0;
+        const price = Number(line.price) || 0;
+        return {
+          productId: line.productId,
+          productName: line.productName,
+          gender: line.gender || 'MALE',
+          qtyKg,
+          qtyCon,
+          price,
+          amount: (qtyKg > 0 ? qtyKg : qtyCon) * price,
+          unit: qtyKg > 0 ? Unit.KG : Unit.CON,
+          isManual: line.productId === 'MANUAL',
+        };
+      });
+
+    setEditCart(cartLines);
+    setEditLaborFee(Number(laborLine?.price) || 0);
+    setEditPaymentMethod(selectedInvoice.paymentMethod || (selectedInvoice.debtAmount > 0 ? PaymentMethod.DEBT : PaymentMethod.CASH));
+    setEditSaleGender('MALE');
+    setEditActiveProductId('');
+    setEditIsManualItem(false);
+    setEditManualName('');
+    setEditQtyKg('');
+    setEditQtyCon('');
+    setEditPrice('');
+    setEditUseManualPrice(false);
     setEditReason('');
     setIsEditInvoiceMode(true);
   }
-  const handleChangeEditableLine = (index: number, field: 'qtyKg' | 'qtyCon' | 'price', value: number) => {
-    const next = [...editableLines];
-    next[index] = {
-      ...next[index],
-      [field]: Math.max(0, Number(value) || 0),
-    };
-    setEditableLines(next);
-  }
-  const editablePreviewTotal = editableLines.reduce((sum, line) => {
-    const qty = line.qtyKg > 0 ? line.qtyKg : line.qtyCon;
-    return sum + qty * line.price;
-  }, 0);
+  const editableGoodsTotal = editCart.reduce((sum, line) => sum + ((line.qtyKg > 0 ? line.qtyKg : line.qtyCon) * line.price), 0);
+  const editablePreviewTotal = editableGoodsTotal + (Number(editLaborFee) || 0);
   const handleSaveEditedInvoice = async () => {
     if (!selectedInvoice || selectedInvoice.type !== 'EXPORT') return;
     if (!editReason.trim()) {
       alert('Vui lòng nhập lý do chỉnh sửa.');
       return;
     }
-    if (editableLines.length === 0) {
+    if (editCart.length === 0 && Number(editLaborFee) === 0) {
       alert('Hoá đơn phải có ít nhất một dòng hàng.');
       return;
     }
-    const hasInvalidLine = editableLines.some(line => (line.qtyKg <= 0 && line.qtyCon <= 0) || line.price <= 0);
+
+    const updatedLines = editCart.map(line => ({
+      productId: line.productId,
+      productName: line.productName,
+      gender: line.gender,
+      qtyKg: line.qtyKg,
+      qtyCon: line.qtyCon,
+      price: line.price,
+    }));
+
+    if (Number(editLaborFee) !== 0) {
+      updatedLines.push({
+        productId: 'MANUAL',
+        productName: Number(editLaborFee) > 0 ? 'Tiền công' : 'Giảm trừ',
+        gender: 'MALE',
+        qtyKg: 0,
+        qtyCon: 1,
+        price: Number(editLaborFee),
+      });
+    }
+
+    const hasInvalidLine = updatedLines.some(line => {
+      if (line.qtyKg <= 0 && line.qtyCon <= 0) return true;
+      if (line.price === 0) return true;
+      if (line.price < 0 && line.productId !== 'MANUAL') return true;
+      return false;
+    });
     if (hasInvalidLine) {
       alert('Mỗi dòng cần có số lượng và đơn giá hợp lệ.');
       return;
@@ -1012,7 +1148,15 @@ function CashbookPage() {
 
     setIsSavingInvoiceEdit(true);
     try {
-      const updated = await db.updateExportInvoice(selectedInvoice.id, editableLines, editReason.trim());
+      const updated = await db.updateExportInvoice(
+        selectedInvoice.id,
+        updatedLines,
+        editReason.trim(),
+        {
+          paymentMethod: editPaymentMethod,
+          paidAmount: editPaymentMethod === PaymentMethod.DEBT ? 0 : Math.max(0, editablePreviewTotal),
+        }
+      );
       setSelectedInvoice(updated);
       setInvoices(db.getInvoices());
       setTxns(db.getCashTransactions());
@@ -1029,7 +1173,7 @@ function CashbookPage() {
       }
       setIsEditInvoiceMode(false);
       setEditReason('');
-      setEditableLines([]);
+      setEditCart([]);
       alert('Đã cập nhật giao dịch thành công.');
     } catch (e: any) {
       alert(e.message || 'Không thể lưu chỉnh sửa giao dịch.');
@@ -1406,38 +1550,151 @@ function CashbookPage() {
                             </div>
                           </div>
                         ) : (
-                          <div className="space-y-3 max-h-60 overflow-y-auto surface-card rounded p-2">
+                          <div className="space-y-3 max-h-[70vh] overflow-y-auto surface-card rounded p-2">
                             {isEditInvoiceMode ? (
                               <>
-                                {editableLines.map((line, idx) => {
-                                  const previewAmount = (line.qtyKg > 0 ? line.qtyKg : line.qtyCon) * line.price;
-                                  return (
-                                    <div key={`${line.productId}-${idx}`} className="p-3 border border-blue-100 bg-blue-50 rounded mb-2">
-                                      <div className="font-bold text-gray-800 mb-2">{line.productName}</div>
-                                      <div className="grid grid-cols-3 gap-2">
+                                <div className="border border-gray-200 rounded-lg p-3 bg-gray-50">
+                                  <div className="flex justify-between items-end mb-2">
+                                    <div className="text-sm font-bold text-gray-700">Thêm hàng vào giao dịch</div>
+                                    <button
+                                      onClick={() => openEditProductPicker('MANUAL')}
+                                      className="text-xs font-bold text-brand-600 border border-brand-200 px-2 py-1 rounded bg-brand-50"
+                                    >
+                                      + Nhập hàng ngoài
+                                    </button>
+                                  </div>
+
+                                  <div className="grid grid-cols-2 gap-2 mb-3">
+                                    {productOptions.map(product => (
+                                      <button
+                                        key={product.id}
+                                        onClick={() => openEditProductPicker(product.id)}
+                                        className={`text-left p-2 rounded border text-xs font-bold ${editActiveProductId === product.id && !editIsManualItem ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'}`}
+                                      >
+                                        {product.name}
+                                      </button>
+                                    ))}
+                                  </div>
+
+                                  {editActiveProductId && (
+                                    <div className="space-y-3 border border-blue-100 bg-white rounded-lg p-3">
+                                      {editIsManualItem ? (
                                         <Input
-                                          label="Kg"
-                                          type="number"
-                                          value={line.qtyKg}
-                                          onChange={(e: any) => handleChangeEditableLine(idx, 'qtyKg', Number(e.target.value))}
+                                          label="Tên hàng ngoài"
+                                          value={editManualName}
+                                          onChange={(e: any) => setEditManualName(e.target.value)}
+                                          placeholder="VD: Gà đi bộ"
                                         />
-                                        <Input
-                                          label="Con"
-                                          type="number"
-                                          value={line.qtyCon}
-                                          onChange={(e: any) => handleChangeEditableLine(idx, 'qtyCon', Number(e.target.value))}
-                                        />
-                                        <Input
-                                          label="Giá"
-                                          type="number"
-                                          value={line.price}
-                                          onChange={(e: any) => handleChangeEditableLine(idx, 'price', Number(e.target.value))}
-                                        />
+                                      ) : (
+                                        <div className="flex gap-2 p-1 bg-gray-100 rounded-lg">
+                                          <button
+                                            onClick={() => {
+                                              setEditSaleGender('MALE');
+                                              const product = getEditProductById(editActiveProductId);
+                                              if (product && !editUseManualPrice) setEditPrice(((product.priceMale || 0) / 1000).toString());
+                                            }}
+                                            className={`flex-1 py-2 text-xs font-bold rounded ${editSaleGender === 'MALE' ? 'bg-white text-blue-600 shadow' : 'text-gray-500'}`}
+                                          >
+                                            GÀ TRỐNG
+                                          </button>
+                                          <button
+                                            onClick={() => {
+                                              setEditSaleGender('FEMALE');
+                                              const product = getEditProductById(editActiveProductId);
+                                              if (product && !editUseManualPrice) setEditPrice(((product.priceFemale || 0) / 1000).toString());
+                                            }}
+                                            className={`flex-1 py-2 text-xs font-bold rounded ${editSaleGender === 'FEMALE' ? 'bg-white text-pink-600 shadow' : 'text-gray-500'}`}
+                                          >
+                                            GÀ MÁI
+                                          </button>
+                                        </div>
+                                      )}
+
+                                      <div className="grid grid-cols-2 gap-2">
+                                        <Input label="Số Kg" type="number" value={editQtyKg} onChange={(e: any) => setEditQtyKg(e.target.value)} placeholder="0.0" />
+                                        <Input label="Số Con" type="number" value={editQtyCon} onChange={(e: any) => setEditQtyCon(e.target.value)} placeholder="0" />
                                       </div>
-                                      <div className="text-right text-sm font-bold text-blue-700 mt-2">{formatCurrency(previewAmount)}</div>
+
+                                      <div>
+                                        <div className="flex justify-between mb-1">
+                                          <label className="text-xs font-bold text-gray-600">Đơn giá (nghìn VND)</label>
+                                          {!editIsManualItem && (
+                                            <button onClick={() => setEditUseManualPrice(prev => !prev)} className="text-xs text-brand-600 underline">
+                                              {editUseManualPrice ? 'Dùng giá mặc định' : 'Sửa giá'}
+                                            </button>
+                                          )}
+                                        </div>
+                                        {editIsManualItem || editUseManualPrice ? (
+                                          <Input type="number" value={editPrice} onChange={(e: any) => setEditPrice(e.target.value)} placeholder="VD: 95" />
+                                        ) : (
+                                          <div className="w-full px-3 py-2 bg-gray-100 border border-gray-200 rounded-lg text-gray-700">
+                                            {formatCurrency((Number(editPrice) || 0) * 1000)}
+                                          </div>
+                                        )}
+                                      </div>
+
+                                      <Button className="w-full" onClick={handleAddEditCartItem}>Thêm vào giỏ chỉnh sửa</Button>
                                     </div>
-                                  );
-                                })}
+                                  )}
+                                </div>
+
+                                <div className="border border-gray-200 rounded-lg bg-white overflow-hidden">
+                                  <div className="bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                    Giỏ giao dịch ({editCart.length})
+                                  </div>
+                                  <div className="divide-y divide-gray-100">
+                                    {editCart.length === 0 ? (
+                                      <div className="p-3 text-sm text-gray-400">Chưa có dòng hàng.</div>
+                                    ) : (
+                                      editCart.map((item, idx) => (
+                                        <div key={`${item.productId}-${idx}`} className="p-3 flex justify-between items-center">
+                                          <div>
+                                            <div className="font-medium text-gray-800 text-sm">{item.productName} {item.productId !== 'MANUAL' ? `(${item.gender === 'FEMALE' ? 'Mái' : 'Trống'})` : ''}</div>
+                                            <div className="text-xs text-gray-500">
+                                              {item.qtyKg > 0 ? `${item.qtyKg} kg` : ''}
+                                              {item.qtyKg > 0 && item.qtyCon > 0 ? ' / ' : ''}
+                                              {item.qtyCon > 0 ? `${item.qtyCon} con` : ''}
+                                              {' x '}{formatCurrency(item.price)}
+                                            </div>
+                                          </div>
+                                          <div className="flex items-center gap-3">
+                                            <span className="font-bold text-sm text-gray-700">{formatCurrency(item.amount)}</span>
+                                            <button onClick={() => handleRemoveEditCartItem(idx)} className="text-red-500 text-xs font-bold">Xóa</button>
+                                          </div>
+                                        </div>
+                                      ))
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div className="border border-gray-200 rounded-lg p-3 bg-gray-50">
+                                  <div className="text-xs font-bold text-gray-600 mb-2">Phương thức thanh toán</div>
+                                  <div className="flex gap-2 mb-3">
+                                    <button onClick={() => setEditPaymentMethod(PaymentMethod.CASH)} className={`flex-1 py-2 text-xs font-bold rounded border ${editPaymentMethod === PaymentMethod.CASH ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-600 border-gray-300'}`}>TIỀN MẶT</button>
+                                    <button onClick={() => setEditPaymentMethod(PaymentMethod.TRANSFER)} className={`flex-1 py-2 text-xs font-bold rounded border ${editPaymentMethod === PaymentMethod.TRANSFER ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300'}`}>CHUYỂN KHOẢN</button>
+                                    <button onClick={() => setEditPaymentMethod(PaymentMethod.DEBT)} className={`flex-1 py-2 text-xs font-bold rounded border ${editPaymentMethod === PaymentMethod.DEBT ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-gray-600 border-gray-300'}`}>GHI NỢ</button>
+                                  </div>
+
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <Input
+                                      label="Tiền công"
+                                      type="number"
+                                      value={editLaborFee}
+                                      onChange={(e: any) => setEditLaborFee(Number(e.target.value) || 0)}
+                                    />
+                                    <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 flex flex-col justify-center">
+                                      <div className="text-xs text-gray-500">Tổng mới</div>
+                                      <div className="text-lg font-bold text-brand-600">{formatCurrency(editablePreviewTotal)}</div>
+                                    </div>
+                                  </div>
+
+                                  <div className="mt-2 text-xs text-gray-500">
+                                    {editPaymentMethod === PaymentMethod.DEBT
+                                      ? 'Khách ghi nợ toàn bộ đơn sau chỉnh sửa.'
+                                      : `Sẽ cập nhật thu tiền: ${formatCurrency(Math.max(0, editablePreviewTotal))}`}
+                                  </div>
+                                </div>
+
                                 <div className="bg-yellow-50 border border-yellow-200 rounded p-2">
                                   <Input
                                     label="Lý do chỉnh sửa (bắt buộc)"
@@ -1445,10 +1702,6 @@ function CashbookPage() {
                                     onChange={(e: any) => setEditReason(e.target.value)}
                                     placeholder="VD: Nhập sai số kg khi cân..."
                                   />
-                                </div>
-                                <div className="flex justify-between items-center px-1">
-                                  <span className="text-sm text-gray-600">Tổng mới:</span>
-                                  <span className="text-lg font-bold text-brand-600">{formatCurrency(editablePreviewTotal)}</span>
                                 </div>
                                 <div className="flex gap-2 pt-1">
                                   <Button variant="secondary" className="flex-1" onClick={() => setIsEditInvoiceMode(false)}>Hủy</Button>

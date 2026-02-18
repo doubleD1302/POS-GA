@@ -176,7 +176,8 @@ class Database {
   private async backfillStockMovementsFromLegacyData(force: boolean = false) {
     const current = this.load<StockMovement[]>(BASE_KEYS.STOCK_MOVEMENTS, []);
     const hasLegacyBackfill = current.some(item => (item.id || '').startsWith('stk-legacy-'));
-    if (!force && hasLegacyBackfill) return;
+    const needsLegacySaleTimeFix = current.some(item => (item.id || '').startsWith('stk-legacy-sale-') && item.occurredAt.includes('T17:00:00'));
+    if (!force && hasLegacyBackfill && !needsLegacySaleTimeFix) return;
 
     const products = this.getProducts();
     const productNameMap = new Map(products.map(p => [p.id, p.name]));
@@ -211,7 +212,7 @@ class Database {
         if (qtyKg <= 0 && qtyCon <= 0) return;
         generated.push({
           id: `stk-legacy-sale-${invoice.id}-${lineIdx}`,
-          occurredAt: this.toISODateTime(invoice.date, '17:00:00'),
+          occurredAt: this.toISODateTime(invoice.date, '00:00:00'),
           productId: line.productId,
           productName: line.productName || productNameMap.get(line.productId) || 'Không rõ sản phẩm',
           gender: line.gender || 'MALE',
@@ -763,7 +764,11 @@ class Database {
   async updateExportInvoice(
     invoiceId: string,
     updatedLinesInput: Array<Partial<InvoiceLine> & { productId: string; productName: string; gender: Gender; qtyKg: number; qtyCon: number; price: number }>,
-    reason: string
+    reason: string,
+    options?: {
+      paymentMethod?: PaymentMethod;
+      paidAmount?: number;
+    }
   ) {
     const safeReason = (reason || '').trim();
     if (!safeReason) throw new Error('Vui lòng nhập lý do chỉnh sửa.');
@@ -802,19 +807,43 @@ class Database {
       throw new Error('Hoá đơn phải có ít nhất một dòng hàng.');
     }
 
-    const hasInvalidLine = normalizedLines.some(l => (l.qtyKg <= 0 && l.qtyCon <= 0) || l.price <= 0);
+    const hasInvalidLine = normalizedLines.some(l => {
+      if (l.qtyKg <= 0 && l.qtyCon <= 0) return true;
+      if (l.price === 0) return true;
+      if (l.price < 0 && l.productId !== 'MANUAL') return true;
+      return false;
+    });
     if (hasInvalidLine) {
       throw new Error('Mỗi dòng cần có số lượng và đơn giá hợp lệ.');
     }
 
     const previousDebt = Number(targetInvoice.debtAmount) || 0;
     const newTotalAmount = normalizedLines.reduce((sum, line) => sum + line.amount, 0);
-    const newPaidAmount = Math.min(Math.max(Number(targetInvoice.paidAmount) || 0, 0), newTotalAmount);
+    const requestedMethod = options?.paymentMethod;
+
+    let requestedPaid = options?.paidAmount;
+    if (requestedMethod === PaymentMethod.DEBT) {
+      requestedPaid = 0;
+    }
+
+    if (requestedPaid === undefined || requestedPaid === null || Number.isNaN(Number(requestedPaid))) {
+      if (requestedMethod === PaymentMethod.CASH || requestedMethod === PaymentMethod.TRANSFER) {
+        requestedPaid = newTotalAmount;
+      } else {
+        requestedPaid = Number(targetInvoice.paidAmount) || 0;
+      }
+    }
+
+    const newPaidAmount = Math.min(Math.max(Number(requestedPaid) || 0, 0), newTotalAmount);
     const newDebtAmount = Math.max(0, newTotalAmount - newPaidAmount);
 
-    const nextPaymentMethod = newDebtAmount <= 0
-      ? (targetInvoice.paymentMethod === PaymentMethod.TRANSFER ? PaymentMethod.TRANSFER : PaymentMethod.CASH)
-      : (newPaidAmount <= 0 ? PaymentMethod.DEBT : (targetInvoice.paymentMethod === PaymentMethod.TRANSFER ? PaymentMethod.TRANSFER : PaymentMethod.CASH));
+    const nextPaymentMethod = requestedMethod
+      ? (requestedMethod === PaymentMethod.DEBT || newPaidAmount <= 0
+          ? PaymentMethod.DEBT
+          : (requestedMethod === PaymentMethod.TRANSFER ? PaymentMethod.TRANSFER : PaymentMethod.CASH))
+      : (newDebtAmount <= 0
+          ? (targetInvoice.paymentMethod === PaymentMethod.TRANSFER ? PaymentMethod.TRANSFER : PaymentMethod.CASH)
+          : (newPaidAmount <= 0 ? PaymentMethod.DEBT : (targetInvoice.paymentMethod === PaymentMethod.TRANSFER ? PaymentMethod.TRANSFER : PaymentMethod.CASH)));
 
     const historyEntry = {
       editedAt: new Date().toISOString(),
