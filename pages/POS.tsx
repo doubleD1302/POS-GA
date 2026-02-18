@@ -80,7 +80,7 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
     setIsManualItem(false);
     setSaleGender('MALE'); // Mặc định chọn Trống trước
     // Lấy giá Trống mặc định
-    const defaultP = prod.priceMale || 0;
+    const defaultP = (prod.priceMale || 0) / 1000;
     setPrice(defaultP.toString());
     
     setQtyKg('');
@@ -103,7 +103,7 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
 
     const k = parseFloat(qtyKg) || 0;
     const c = parseFloat(qtyCon) || 0;
-    const p = parseFloat(price) || 0;
+    const p = (parseFloat(price) || 0) * 1000;
 
     if (k === 0 && c === 0) {
       alert("Nhập số lượng Kg hoặc Con");
@@ -431,7 +431,7 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
                         onClick={() => {
                             setSaleGender('MALE');
                             // Tự động nhảy giá theo Trống
-                            if(!useManualPrice && activeProduct) setPrice((activeProduct.priceMale || 0).toString());
+                        if(!useManualPrice && activeProduct) setPrice(((activeProduct.priceMale || 0) / 1000).toString());
                         }}
                         className={`flex-1 py-2 text-xs font-bold rounded transition-all ${saleGender === 'MALE' ? 'bg-white text-blue-600 shadow' : 'text-gray-400'}`}
                     >
@@ -441,7 +441,7 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
                         onClick={() => {
                             setSaleGender('FEMALE');
                             // Tự động nhảy giá theo Mái
-                            if(!useManualPrice && activeProduct) setPrice((activeProduct.priceFemale || 0).toString());
+                        if(!useManualPrice && activeProduct) setPrice(((activeProduct.priceFemale || 0) / 1000).toString());
                         }}
                         className={`flex-1 py-2 text-xs font-bold rounded transition-all ${saleGender === 'FEMALE' ? 'bg-white text-pink-500 shadow' : 'text-gray-400'}`}
                     >
@@ -474,7 +474,7 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
             
             <div className="pt-2">
                 <div className="flex justify-between mb-1">
-                    <label className="text-sm font-medium text-gray-700">Đơn giá</label>
+                  <label className="text-sm font-medium text-gray-700">Đơn giá (nghìn VND/kg hoặc con)</label>
                     {!isManualItem && (
                         <button 
                             onClick={() => setUseManualPrice(!useManualPrice)} 
@@ -489,11 +489,11 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
                         value={price} 
                         onChange={(e: any) => setPrice(e.target.value)} 
                         type="number"
-                        placeholder="Nhập giá bán"
+                      placeholder="VD: 95"
                      />
                 ) : (
                     <div className="w-full px-3 py-2 bg-gray-100 border border-gray-200 rounded-lg text-gray-600">
-                        {formatCurrency(Number(price))}
+                      {formatCurrency((Number(price) || 0) * 1000)}
                     </div>
                 )}
             </div>

@@ -434,6 +434,12 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
   };
 
   const currentSupplier = suppliers.find(s => s.id === supplierId);
+  const getDetailLines = (details: string) => {
+    return (details || '')
+      .split(' + ')
+      .map(part => part.trim())
+      .filter(Boolean);
+  };
 
   return (
     <div className="pb-24">
@@ -588,7 +594,14 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
                   <div>Trừ no 2%: <span className="font-bold text-red-600">-{item.debtDeductKg.toFixed(2)} kg</span></div>
                   <div className="col-span-2">Thực nhập kho: <span className="font-bold text-emerald-600">{item.kg.toFixed(2)} kg</span></div>
                   <div>Số lượng: <span className="font-bold text-blue-600">{item.con} con</span></div>
-                  <div className="col-span-2 text-xs italic text-gray-400 mt-1">Chi tiết: {item.details}</div>
+                  <div className="col-span-2 mt-2 bg-slate-50 border border-slate-200 rounded p-2">
+                    <div className="text-[11px] font-bold text-slate-600 mb-1">Chi tiết mã gà:</div>
+                    <ol className="list-decimal pl-4 space-y-1 text-xs text-slate-700">
+                      {getDetailLines(item.details).map((line, lineIdx) => (
+                        <li key={lineIdx} className="leading-5 break-words">{line}</li>
+                      ))}
+                    </ol>
+                  </div>
                   <div className="col-span-2 border-t border-gray-200 mt-2 pt-2 flex justify-between items-center">
                     <span>Đơn giá: {(item.price / 1000).toLocaleString('vi-VN')} nghìn VND/kg</span>
                     <span className="text-lg font-bold text-gray-800">{formatCurrency(item.total)}</span>
@@ -939,7 +952,7 @@ function CashbookPage() {
     if (order) {
       setSelectedOrder(order); setPoName(order.customerName); setPoPhone(order.phone || '');
       setPoProduct(order.productNote); setPoCon(order.qtyCon?.toString() || ''); setPoKg(order.qtyKg?.toString() || '');
-      setPoPrice(order.unitPrice ? String(order.unitPrice) : '');
+      setPoPrice(order.unitPrice ? String((order.unitPrice || 0) / 1000) : '');
       setPoTime(order.deliveryTime); setPoNote(order.note || '');
     } else {
       setSelectedOrder(null); setPoName(''); setPoPhone(''); setPoProduct(''); setPoCon(''); setPoKg('');
@@ -957,7 +970,7 @@ function CashbookPage() {
       productNote: poProduct,
       qtyCon: Number(poCon) || 0,
       qtyKg: Number(poKg) || 0,
-      unitPrice: Number(poPrice) || 0,
+      unitPrice: (Number(poPrice) || 0) * 1000,
       deliveryTime: poTime,
       note: poNote,
       status: selectedOrder?.status || 'PENDING'
@@ -1001,7 +1014,7 @@ function CashbookPage() {
     if (foundProduct) {
       setPoProduct(foundProduct.name);
       const quickPrice = Number(foundProduct.priceMale || 0);
-      if (quickPrice > 0 && !poPrice) setPoPrice(String(quickPrice));
+      if (quickPrice > 0 && !poPrice) setPoPrice(String(quickPrice / 1000));
       db.saveQuickItem(foundProduct.name);
       return;
     }
@@ -1014,7 +1027,7 @@ function CashbookPage() {
 
     const qtyCon = Number(poCon) || 0;
     const qtyKg = Number(poKg) || 0;
-    const unitPrice = Number(poPrice) || 0;
+    const unitPrice = (Number(poPrice) || 0) * 1000;
 
     if (!poName || !poProduct || !poTime) return alert('Vui lòng nhập đủ khách hàng, hàng hoá và thời gian giao.');
     if (qtyCon <= 0 && qtyKg <= 0) return alert('Cần nhập ít nhất Số con hoặc Số kg.');

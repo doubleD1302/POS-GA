@@ -149,7 +149,7 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
     if (order) {
       setSelectedOrder(order); setPoName(order.customerName); setPoPhone(order.phone || '');
       setPoProduct(order.productNote); setPoCon(order.qtyCon?.toString() || ''); setPoKg(order.qtyKg?.toString() || '');
-      setPoPrice(order.unitPrice ? String(order.unitPrice) : '');
+      setPoPrice(order.unitPrice ? String((order.unitPrice || 0) / 1000) : '');
       setPoTime(order.deliveryTime); setPoNote(order.note || '');
       const total = ((Number(order.qtyKg) || 0) > 0 ? (Number(order.qtyKg) || 0) : (Number(order.qtyCon) || 0)) * (Number(order.unitPrice) || 0);
       setDeliveryPaymentMethod(PaymentMethod.CASH);
@@ -177,7 +177,7 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
       productNote: poProduct,
       qtyCon: Number(poCon) || 0,
       qtyKg: Number(poKg) || 0,
-      unitPrice: Number(poPrice) || 0,
+      unitPrice: (Number(poPrice) || 0) * 1000,
       deliveryTime: poTime,
       note: poNote,
       status: selectedOrder?.status || 'PENDING'
@@ -229,7 +229,7 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
     if (foundProduct) {
       setPoProduct(foundProduct.name);
       const quickPrice = Number(foundProduct.priceMale || 0);
-      if (quickPrice > 0 && !poPrice) setPoPrice(String(quickPrice));
+      if (quickPrice > 0 && !poPrice) setPoPrice(String(quickPrice / 1000));
       db.saveQuickItem(foundProduct.name);
       return;
     }
@@ -247,7 +247,7 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
 
     const qtyCon = Number(poCon) || 0;
     const qtyKg = Number(poKg) || 0;
-    const unitPrice = Number(poPrice) || 0;
+    const unitPrice = (Number(poPrice) || 0) * 1000;
     const orderTotal = (qtyKg > 0 ? qtyKg : qtyCon) * unitPrice;
 
     if (!poName || !poProduct || !poTime) return alert('Vui lòng nhập đủ khách hàng, hàng hoá và thời gian giao.');
@@ -469,7 +469,7 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
       window.open(qr, '_blank', 'noopener,noreferrer');
     }
   };
-  const draftTotal = (Number(poKg) > 0 ? Number(poKg) : Number(poCon)) * (Number(poPrice) || 0);
+  const draftTotal = (Number(poKg) > 0 ? Number(poKg) : Number(poCon)) * ((Number(poPrice) || 0) * 1000);
   const deliveryQrLink = getDeliveryQrLink();
 
   return (
@@ -668,7 +668,7 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
               <div className="flex-1"><Input label="Số con" type="number" value={poCon} onChange={(e: any) => setPoCon(e.target.value)} /></div>
               <div className="flex-1"><Input label="Số Kg" type="number" value={poKg} onChange={(e: any) => setPoKg(e.target.value)} /></div>
             </div>
-            <Input label="Đơn giá" type="number" value={poPrice} onChange={(e: any) => setPoPrice(e.target.value)} placeholder="VND / kg hoặc con" className="mt-2" />
+            <Input label="Đơn giá (nghìn VND/kg hoặc con)" type="number" value={poPrice} onChange={(e: any) => setPoPrice(e.target.value)} placeholder="VD: 95" className="mt-2" />
           </div>
           <textarea className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white" value={poNote} onChange={e => setPoNote(e.target.value)} placeholder="Ghi chú..." />
           {showDeliveryPayment && (
