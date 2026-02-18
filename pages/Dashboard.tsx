@@ -88,6 +88,20 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
     container.scrollTop = container.scrollHeight;
   }, [aiMessages, isAskingAi, isAiChatOpen]);
 
+  useEffect(() => {
+    if (!showDeliveryPayment) return;
+    if (deliveryPaymentMethod === PaymentMethod.DEBT) return;
+
+    const paid = Number(deliveryPaidAmount) || 0;
+    const unitPrice = (Number(poPrice) || 0) * 1000;
+    const qtyCon = Number(poCon) || 0;
+
+    if (qtyCon > 0 || paid <= 0 || unitPrice <= 0) return;
+
+    const inferredKg = paid / unitPrice;
+    setPoKg(inferredKg.toFixed(3).replace(/\.0+$/, '').replace(/(\.\d*[1-9])0+$/, '$1'));
+  }, [showDeliveryPayment, deliveryPaymentMethod, deliveryPaidAmount, poPrice, poCon]);
+
   if (!stats) return <div className="p-4">Đang tải...</div>;
 
   const handleSalesSecurityToggle = () => {
@@ -699,6 +713,11 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
                 onChange={(e: any) => setDeliveryPaidAmount(Number(e.target.value))}
                 disabled={deliveryPaymentMethod === PaymentMethod.DEBT}
               />
+              {deliveryPaymentMethod !== PaymentMethod.DEBT && Number(poCon) <= 0 && Number(deliveryPaidAmount) > 0 && Number(poPrice) > 0 && (
+                <div className="text-xs text-gray-600 -mt-1">
+                  Tự tính khối lượng: {((Number(deliveryPaidAmount) || 0) / ((Number(poPrice) || 0) * 1000)).toFixed(3)} kg
+                </div>
+              )}
               {deliveryPaymentMethod === PaymentMethod.TRANSFER && (
                 <div className="bg-white border border-blue-100 rounded-lg p-2 text-center">
                   {bankSettings && deliveryQrLink ? (
