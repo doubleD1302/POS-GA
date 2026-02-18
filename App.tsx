@@ -59,7 +59,7 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
   if (isConfirming) {
     return (
       <div className="min-h-screen bg-brand-600 flex items-center justify-center p-6">
-        <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+        <div className="surface-elevated rounded-2xl p-6 w-full max-w-sm">
           <h2 className="text-xl font-bold text-gray-800 mb-2">Doanh nghiệp mới?</h2>
           <p className="text-gray-600 mb-6 text-sm">
             Mã <b>{code}</b> chưa tồn tại. Bạn có muốn tạo mới không?
@@ -82,7 +82,7 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
         <p className="text-brand-100 opacity-90">Chuyên cung cấp sỉ & lẻ các loại gà</p>
       </div>
       
-      <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+      <div className="surface-elevated rounded-2xl p-6 w-full max-w-sm">
         <label className="block text-sm font-bold text-gray-700 mb-2">Nhập mã doanh nghiệp</label>
         <Input 
           placeholder="Ví dụ: 123456" 
@@ -454,7 +454,7 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
         </div>
         <div className="flex gap-2">
           <div className="flex-1">
-            <select value={supplierId} onChange={(e) => setSupplierId(e.target.value)} className="w-full px-3 py-3 bg-white border border-blue-200 rounded-lg text-gray-800 font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm">
+            <select value={supplierId} onChange={(e) => setSupplierId(e.target.value)} className="w-full px-3 py-3 surface-elevated border border-blue-200 rounded-lg text-gray-800 font-bold focus:outline-none focus:ring-2 focus:ring-blue-500">
               {suppliers.map(s => <option key={s.id} value={s.id}>{s.name} ({s.supplierCategory === 'COMPANY' ? 'Công ty' : 'Trại'})</option>)}
             </select>
           </div>
@@ -486,7 +486,7 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
 
         <div className="flex gap-2 mb-3">
           <div className="flex-[2]">
-            <select className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500" value={currentPid} onChange={e => setCurrentPid(e.target.value)}>
+            <select className="w-full px-3 py-2 surface-elevated border border-gray-300 rounded-lg text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500" value={currentPid} onChange={e => setCurrentPid(e.target.value)}>
               <option value="">-- Chọn Loại Gà --</option>
               {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
@@ -569,8 +569,8 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
       </Card>
 
       {ticketItems.length > 0 && (
-        <div className="bg-white rounded-none shadow-lg border border-gray-300 overflow-hidden mb-20 relative">
-          <div className="bg-white p-4 text-center border-b border-gray-300 border-dashed">
+        <div className="surface-elevated rounded-none border border-gray-300 overflow-hidden mb-20 relative">
+          <div className="surface-card p-4 text-center border-b border-gray-300 border-dashed">
             <h2 className="text-xl font-extrabold text-gray-800 uppercase tracking-widest">Phiếu Nhập Hàng</h2>
             <p className="text-xs text-gray-500 mt-1">{new Date().toLocaleString('vi-VN')}</p>
             <div className="mt-3 text-left bg-gray-50 p-2 rounded text-sm border border-gray-200">
@@ -648,8 +648,8 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
           <div>
             <label className="text-sm font-bold text-gray-700 mb-1 block">Loại nhà cung cấp</label>
             <div className="flex gap-2">
-              <button onClick={() => setNewSupCategory('FARM')} className={`flex-1 py-2 rounded-lg border text-sm font-bold ${newSupCategory === 'FARM' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300'}`}>Trại</button>
-              <button onClick={() => setNewSupCategory('COMPANY')} className={`flex-1 py-2 rounded-lg border text-sm font-bold ${newSupCategory === 'COMPANY' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-700 border-gray-300'}`}>Công ty</button>
+              <button onClick={() => setNewSupCategory('FARM')} className={`flex-1 py-2 rounded-lg border text-sm font-bold ${newSupCategory === 'FARM' ? 'bg-blue-600 text-white border-blue-600' : 'surface-card text-gray-700 border-gray-300'}`}>Trại</button>
+              <button onClick={() => setNewSupCategory('COMPANY')} className={`flex-1 py-2 rounded-lg border text-sm font-bold ${newSupCategory === 'COMPANY' ? 'bg-indigo-600 text-white border-indigo-600' : 'surface-card text-gray-700 border-gray-300'}`}>Công ty</button>
             </div>
           </div>
           <Button className="w-full" onClick={handleAddSupplier}>Lưu</Button>
@@ -894,7 +894,7 @@ function CashbookPage() {
     
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 px-4">
-         <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
+         <div className="surface-elevated rounded-xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
             <div className="p-4 border-b bg-brand-600 text-white flex justify-between items-center">
                 <h3 className="font-bold text-lg">BÁO CÁO DOANH THU</h3>
                 <button onClick={() => setIsReportOpen(false)} className="text-white text-2xl">&times;</button>
@@ -1217,7 +1217,7 @@ function CashbookPage() {
 
       {/* 1. THANH ĐIỀU HƯỚNG THỜI GIAN & TAB */}
       <Card className="mb-4 p-2 bg-brand-50 border-brand-100">
-        <div className="flex bg-white rounded-lg p-1 shadow-sm border border-gray-100 mb-3">
+        <div className="flex surface-card rounded-lg p-1 mb-3">
             <button 
             onClick={() => { setViewMode('MONTH'); setTargetDate(new Date()); }}
             className={`flex-1 py-1.5 text-xs font-bold uppercase rounded-md transition-all ${viewMode === 'MONTH' ? 'bg-brand-600 text-white shadow' : 'text-gray-500 hover:bg-gray-50'}`}
@@ -1232,7 +1232,7 @@ function CashbookPage() {
             </button>
         </div>
 
-        <div className="flex items-center justify-between bg-white rounded-lg px-2 py-2 border border-gray-200">
+        <div className="flex items-center justify-between surface-elevated rounded-lg px-2 py-2 border border-gray-200">
             <button onClick={handlePrev} className="p-2 hover:bg-gray-100 rounded-full text-brand-700 font-bold">❮</button>
             <div className="text-center">
                 <span className="text-xs text-gray-400 font-medium uppercase block">{viewMode === 'MONTH' ? 'Tháng Đang Xem' : 'Năm Tài Chính'}</span>
@@ -1261,15 +1261,15 @@ function CashbookPage() {
         {isSummaryExpanded && isSummaryUnlocked && (
           <div className="border-t border-gray-100 p-3 bg-gray-50">
             <div className="grid grid-cols-2 gap-2">
-              <div className="bg-white p-3 rounded-lg shadow-sm border border-gray-100">
+              <div className="surface-card p-3 rounded-lg">
                 <div className="text-xs text-gray-500 uppercase font-bold">TỔNG THU ({viewMode === 'MONTH' ? 'THÁNG' : 'NĂM'})</div>
                 <div className="text-lg font-bold text-green-600">{formatCurrency(periodIncome)}</div>
               </div>
-              <div className="bg-white p-3 rounded-lg shadow-sm border border-gray-100">
+              <div className="surface-card p-3 rounded-lg">
                 <div className="text-xs text-gray-500 uppercase font-bold">TỔNG CHI ({viewMode === 'MONTH' ? 'THÁNG' : 'NĂM'})</div>
                 <div className="text-lg font-bold text-red-600">{formatCurrency(periodExpense)}</div>
               </div>
-              <div className="bg-white p-3 rounded-lg shadow-sm border border-gray-100">
+              <div className="surface-card p-3 rounded-lg">
                 <div className="text-xs text-gray-500 uppercase font-bold">LỢI NHUẬN</div>
                 <div className={`text-lg font-bold ${periodBalance >= 0 ? 'text-blue-600' : 'text-orange-600'}`}>
                   {formatCurrency(periodBalance)}
@@ -1306,7 +1306,7 @@ function CashbookPage() {
           <div 
             key={t.id} 
             onDoubleClick={() => handleSelectTxn(t)}
-            className="bg-white p-3 rounded shadow-sm border border-gray-100 flex justify-between items-center active:bg-gray-50 cursor-pointer"
+            className="surface-card p-3 rounded flex justify-between items-center active:bg-gray-50 cursor-pointer"
           >
             <div className="flex-1 min-w-0 pr-2">
               <div className="flex justify-between items-baseline">
@@ -1359,7 +1359,7 @@ function CashbookPage() {
                     )}
                     {selectedInvoice && (
                         selectedInvoice.type === 'IMPORT' ? (
-                          <div className="bg-white rounded shadow border border-gray-200 overflow-hidden max-h-[60vh] overflow-y-auto">
+                          <div className="surface-elevated rounded border border-gray-200 overflow-hidden max-h-[60vh] overflow-y-auto">
                             <div className="p-4 text-center border-b border-gray-200 border-dashed">
                               <h2 className="text-xl font-extrabold text-gray-800 uppercase tracking-widest">Phiếu Nhập Hàng</h2>
                               <p className="text-xs text-gray-500 mt-1">{new Date(selectedTxn?.date || selectedInvoice.date).toLocaleString('vi-VN')}</p>
@@ -1370,7 +1370,7 @@ function CashbookPage() {
 
                             <div className="p-2">
                               {selectedInvoice.lines.map((line, idx) => (
-                                <div key={idx} className="mb-3 border border-gray-200 rounded-md overflow-hidden text-sm bg-white">
+                                <div key={idx} className="mb-3 border border-gray-200 rounded-md overflow-hidden text-sm surface-card">
                                   <div className="bg-gray-100 px-3 py-2 font-bold text-gray-800">
                                     {idx + 1}. {line.productName} ({line.gender === 'FEMALE' ? 'Mái' : 'Trống'})
                                   </div>
@@ -1406,7 +1406,7 @@ function CashbookPage() {
                             </div>
                           </div>
                         ) : (
-                          <div className="space-y-3 max-h-60 overflow-y-auto bg-white border border-gray-100 rounded p-2">
+                          <div className="space-y-3 max-h-60 overflow-y-auto surface-card rounded p-2">
                             {isEditInvoiceMode ? (
                               <>
                                 {editableLines.map((line, idx) => {
@@ -1477,7 +1477,7 @@ function CashbookPage() {
                         )
                     )}
                     {!isEditInvoiceMode && selectedInvoice && selectedInvoice.type === 'EXPORT' && (selectedInvoice.editHistory || []).length > 0 && (
-                      <div className="bg-white border border-gray-200 rounded-lg p-3">
+                      <div className="surface-card border border-gray-200 rounded-lg p-3">
                         <div className="text-xs font-bold text-gray-600 uppercase mb-2">Lịch sử chỉnh sửa</div>
                         <div className="space-y-2 max-h-40 overflow-y-auto">
                           {(selectedInvoice.editHistory || []).map((entry, idx) => (
@@ -1683,13 +1683,13 @@ function PartnersPage() {
          <div className="relative flex-1">
            <button
              onClick={() => { setIsDebtMenuOpen(prev => !prev); setIsNameMenuOpen(false); }}
-             className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm font-semibold text-gray-700 flex items-center justify-between"
+             className="w-full px-3 py-2 rounded-lg surface-card border border-gray-300 text-sm font-semibold text-gray-700 flex items-center justify-between"
            >
              <span>Lọc theo nợ: {debtFilterLabel}</span>
              <span className="text-xs">▾</span>
            </button>
            {isDebtMenuOpen && (
-             <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg p-1">
+             <div className="absolute z-20 mt-1 w-full surface-elevated border border-gray-200 rounded-lg p-1">
                <button onClick={() => { setDebtFilter('ALL'); setIsDebtMenuOpen(false); }} className={`w-full text-left px-3 py-2 rounded text-sm ${debtFilter === 'ALL' ? 'bg-gray-100 text-gray-900 font-bold' : 'text-gray-700 hover:bg-gray-50'}`}>Mọi công nợ</button>
                <button onClick={() => { setDebtFilter('HAS_DEBT'); setIsDebtMenuOpen(false); }} className={`w-full text-left px-3 py-2 rounded text-sm ${debtFilter === 'HAS_DEBT' ? 'bg-orange-50 text-orange-700 font-bold' : 'text-gray-700 hover:bg-gray-50'}`}>Có nợ</button>
                <button onClick={() => { setDebtFilter('NO_DEBT'); setIsDebtMenuOpen(false); }} className={`w-full text-left px-3 py-2 rounded text-sm ${debtFilter === 'NO_DEBT' ? 'bg-green-50 text-green-700 font-bold' : 'text-gray-700 hover:bg-gray-50'}`}>Hết nợ</button>
@@ -1700,13 +1700,13 @@ function PartnersPage() {
          <div className="relative flex-1">
            <button
              onClick={() => { setIsNameMenuOpen(prev => !prev); setIsDebtMenuOpen(false); }}
-             className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm font-semibold text-gray-700 flex items-center justify-between"
+             className="w-full px-3 py-2 rounded-lg surface-card border border-gray-300 text-sm font-semibold text-gray-700 flex items-center justify-between"
            >
              <span>Sắp xếp tên: {nameFilterLabel}</span>
              <span className="text-xs">▾</span>
            </button>
            {isNameMenuOpen && (
-             <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg p-1">
+             <div className="absolute z-20 mt-1 w-full surface-elevated border border-gray-200 rounded-lg p-1">
                <button onClick={() => { setNameFilter('ALL'); setIsNameMenuOpen(false); }} className={`w-full text-left px-3 py-2 rounded text-sm ${nameFilter === 'ALL' ? 'bg-gray-100 text-gray-900 font-bold' : 'text-gray-700 hover:bg-gray-50'}`}>Mặc định</button>
                <button onClick={() => { setNameFilter('A_Z'); setIsNameMenuOpen(false); }} className={`w-full text-left px-3 py-2 rounded text-sm ${nameFilter === 'A_Z' ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-gray-700 hover:bg-gray-50'}`}>Tên A → Z</button>
                <button onClick={() => { setNameFilter('Z_A'); setIsNameMenuOpen(false); }} className={`w-full text-left px-3 py-2 rounded text-sm ${nameFilter === 'Z_A' ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-gray-700 hover:bg-gray-50'}`}>Tên Z → A</button>
@@ -1718,7 +1718,7 @@ function PartnersPage() {
        {/* Partner List */}
        <div className="space-y-3">
          {partners.map(p => (
-           <div key={p.id} onClick={() => handleOpenDetail(p)} className="bg-white p-3 rounded-lg shadow-sm border border-gray-100 flex justify-between items-center active:bg-blue-50 cursor-pointer transition-colors hover:border-blue-200">
+           <div key={p.id} onClick={() => handleOpenDetail(p)} className="surface-card p-3 rounded-lg flex justify-between items-center active:bg-blue-50 cursor-pointer transition-colors hover:border-blue-200">
              <div>
                <div className="font-bold text-gray-800 flex items-center gap-2">
                  {p.name} 
@@ -1808,7 +1808,7 @@ function PartnersPage() {
                             <div 
                                 key={inv.id} 
                                 onClick={() => setViewingInvoice(inv)}
-                                className="bg-white border border-orange-100 rounded-lg p-3 shadow-sm flex justify-between items-center cursor-pointer hover:bg-orange-50"
+                            className="surface-card border border-orange-100 rounded-lg p-3 flex justify-between items-center cursor-pointer hover:bg-orange-50"
                             >
                                 <div>
                                     <div className="font-bold text-sm text-gray-800">{formatDate(inv.date)} <span className="text-gray-400 font-normal text-xs">#{inv.code}</span></div>
@@ -1875,7 +1875,7 @@ function PartnersPage() {
 
                    <div className="space-y-2 max-h-80 overflow-y-auto">
                        {viewingInvoice.lines.map((line, idx) => (
-                           <div key={idx} className="flex flex-col p-3 border-b last:border-0 border-gray-100 bg-white rounded shadow-sm">
+                         <div key={idx} className="flex flex-col p-3 border-b last:border-0 border-gray-100 surface-card rounded">
                                <div className="flex justify-between w-full mb-1">
                                    <div className="font-bold text-gray-800">{line.productName}</div>
                                    <div className="font-bold text-blue-600">{formatCurrency(line.amount)}</div>
