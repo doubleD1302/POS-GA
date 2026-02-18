@@ -57,6 +57,9 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
   const draftBaseTotal = (Number(poKg) > 0 ? Number(poKg) : Number(poCon)) * ((Number(poPrice) || 0) * 1000);
   const draftTotal = draftBaseTotal + (Number(deliveryLaborFee) || 0);
   const isDeliveryTotalLowerThanActual = draftTotal < draftBaseTotal;
+  const autoDeliveryKg = Number(poKg) || 0;
+  const autoDeliveryPrice = (Number(poPrice) || 0) * 1000;
+  const dynamicDeliveryWarning = `Đơn giá chính xác là số_kg(${autoDeliveryKg.toFixed(3)}kg) x đơn_giá(${formatCurrency(autoDeliveryPrice)}) = tổng_tiền(${formatCurrency(draftBaseTotal)}), hãy cân nhắc kỹ.`;
 
   const refreshStats = () => {
     const data = db.getDashboardStats();
@@ -286,7 +289,7 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
     if (unitPrice <= 0) return alert('Vui lòng nhập đơn giá hợp lệ để xuất hoá đơn.');
 
     if (isDeliveryTotalLowerThanActual) {
-      const ok = window.confirm('Đơn giá chính xác là số_kg(hệ thống tự điền) x đơn_giá(hệ thống tự điền) = tổng_tiền( hệ thống tự điền), hãy cân nhắc kỹ. Bạn vẫn muốn lưu đơn với tổng khách phải trả nhỏ hơn tổng thực tế?');
+      const ok = window.confirm(`${dynamicDeliveryWarning} Bạn vẫn muốn lưu đơn với tổng khách phải trả nhỏ hơn tổng thực tế?`);
       if (!ok) return;
     }
 
@@ -776,7 +779,7 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
               />
               {isDeliveryTotalLowerThanActual && (
                 <div className="text-[11px] text-orange-600 font-semibold -mt-1">
-                  ⚠ Đơn giá chính xác là số_kg(hệ thống tự điền) x đơn_giá(hệ thống tự điền) = tổng_tiền( hệ thống tự điền), hãy cân nhắc kỹ.
+                  ⚠ {dynamicDeliveryWarning}
                 </div>
               )}
               {deliveryPaymentMethod !== PaymentMethod.DEBT && Number(poCon) <= 0 && Number(draftTotal) > 0 && Number(poPrice) > 0 && (

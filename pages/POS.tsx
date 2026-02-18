@@ -68,6 +68,9 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
   const totalAmount = cart.reduce((sum, item) => sum + item.amount, 0);
   const finalTotalAmount = totalAmount + (Number(laborFee) || 0);
   const isTotalLowerThanActual = finalTotalAmount < totalAmount;
+  const autoWarningKg = cart.reduce((sum, item) => sum + (Number(item.qtyKg) || 0), 0);
+  const autoWarningPrice = autoWarningKg > 0 ? totalAmount / autoWarningKg : 0;
+  const dynamicLowerTotalWarning = `Đơn giá chính xác là số_kg(${autoWarningKg.toFixed(3)}kg) x đơn_giá(${formatCurrency(autoWarningPrice)}) = tổng_tiền(${formatCurrency(totalAmount)}), hãy cân nhắc kỹ.`;
 
   useEffect(() => {
     if (cart.length === 0 && laborFee !== 0) {
@@ -169,7 +172,7 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
       const paidAmount = paymentMethod === PaymentMethod.DEBT ? 0 : finalTotalAmount;
 
       if (isTotalLowerThanActual) {
-        const ok = window.confirm('Đơn giá chính xác là số_kg(hệ thống tự điền) x đơn_giá(hệ thống tự điền) = tổng_tiền( hệ thống tự điền), hãy cân nhắc kỹ. Bạn vẫn muốn lưu đơn với tổng khách phải trả nhỏ hơn tổng thực tế?');
+        const ok = window.confirm(`${dynamicLowerTotalWarning} Bạn vẫn muốn lưu đơn với tổng khách phải trả nhỏ hơn tổng thực tế?`);
         if (!ok) {
           setIsSubmitting(false);
           return;
@@ -453,7 +456,7 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
               />
               {isTotalLowerThanActual && (
                 <div className="text-[11px] text-orange-600 font-semibold mt-1">
-                  ⚠ Đơn giá chính xác là số_kg(hệ thống tự điền) x đơn_giá(hệ thống tự điền) = tổng_tiền( hệ thống tự điền), hãy cân nhắc kỹ.
+                  ⚠ {dynamicLowerTotalWarning}
                 </div>
               )}
             </div>
