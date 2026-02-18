@@ -683,6 +683,17 @@ function CashbookPage() {
   // Detail Modal & Settings Modal & PreOrder (Giữ nguyên logic cũ)
   const [selectedTxn, setSelectedTxn] = useState<CashTransaction | null>(null);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | undefined>(undefined);
+  const [isEditInvoiceMode, setIsEditInvoiceMode] = useState(false);
+  const [editableLines, setEditableLines] = useState<Array<{
+    productId: string;
+    productName: string;
+    gender: Gender;
+    qtyKg: number;
+    qtyCon: number;
+    price: number;
+  }>>([]);
+  const [editReason, setEditReason] = useState('');
+  const [isSavingInvoiceEdit, setIsSavingInvoiceEdit] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settingStep, setSettingStep] = useState<'INPUT' | 'CONFIRM'>('INPUT');
   const [bankId, setBankId] = useState('');
@@ -944,8 +955,87 @@ function CashbookPage() {
   }
   const handleSelectTxn = (txn: CashTransaction) => {
     setSelectedTxn(txn);
+    setIsEditInvoiceMode(false);
+    setEditReason('');
+    setEditableLines([]);
     if (txn.refId) setSelectedInvoice(db.getInvoice(txn.refId));
     else setSelectedInvoice(undefined);
+  }
+  const handleCloseTxnModal = () => {
+    setSelectedTxn(null);
+    setSelectedInvoice(undefined);
+    setIsEditInvoiceMode(false);
+    setEditReason('');
+    setEditableLines([]);
+  }
+  const handleOpenEditInvoice = () => {
+    if (!selectedInvoice || selectedInvoice.type !== 'EXPORT') return;
+    const lines = selectedInvoice.lines.map(line => ({
+      productId: line.productId,
+      productName: line.productName,
+      gender: line.gender || 'MALE',
+      qtyKg: Number(line.qtyKg) || 0,
+      qtyCon: Number(line.qtyCon) || 0,
+      price: Number(line.price) || 0,
+    }));
+    setEditableLines(lines);
+    setEditReason('');
+    setIsEditInvoiceMode(true);
+  }
+  const handleChangeEditableLine = (index: number, field: 'qtyKg' | 'qtyCon' | 'price', value: number) => {
+    const next = [...editableLines];
+    next[index] = {
+      ...next[index],
+      [field]: Math.max(0, Number(value) || 0),
+    };
+    setEditableLines(next);
+  }
+  const editablePreviewTotal = editableLines.reduce((sum, line) => {
+    const qty = line.qtyKg > 0 ? line.qtyKg : line.qtyCon;
+    return sum + qty * line.price;
+  }, 0);
+  const handleSaveEditedInvoice = async () => {
+    if (!selectedInvoice || selectedInvoice.type !== 'EXPORT') return;
+    if (!editReason.trim()) {
+      alert('Vui lòng nhập lý do chỉnh sửa.');
+      return;
+    }
+    if (editableLines.length === 0) {
+      alert('Hoá đơn phải có ít nhất một dòng hàng.');
+      return;
+    }
+    const hasInvalidLine = editableLines.some(line => (line.qtyKg <= 0 && line.qtyCon <= 0) || line.price <= 0);
+    if (hasInvalidLine) {
+      alert('Mỗi dòng cần có số lượng và đơn giá hợp lệ.');
+      return;
+    }
+
+    setIsSavingInvoiceEdit(true);
+    try {
+      const updated = await db.updateExportInvoice(selectedInvoice.id, editableLines, editReason.trim());
+      setSelectedInvoice(updated);
+      setInvoices(db.getInvoices());
+      setTxns(db.getCashTransactions());
+      if (selectedTxn && selectedTxn.refId === updated.id) {
+        if (selectedTxn.type === 'DEBT') {
+          setSelectedTxn({
+            ...selectedTxn,
+            amount: updated.debtAmount,
+            description: `Ghi nợ: ${updated.partnerName} (${updated.code})`,
+          } as any);
+        } else if (selectedTxn.type === 'INCOME') {
+          setSelectedTxn({ ...selectedTxn, amount: updated.paidAmount } as any);
+        }
+      }
+      setIsEditInvoiceMode(false);
+      setEditReason('');
+      setEditableLines([]);
+      alert('Đã cập nhật giao dịch thành công.');
+    } catch (e: any) {
+      alert(e.message || 'Không thể lưu chỉnh sửa giao dịch.');
+    } finally {
+      setIsSavingInvoiceEdit(false);
+    }
   }
   // PreOrder Logic (Giữ nguyên)
   const handleOpenOrderModal = (order?: PreOrder) => {
@@ -1235,7 +1325,7 @@ function CashbookPage() {
       </div>
 
       {/* Transaction Details Modal */}
-      <Modal isOpen={!!selectedTxn} onClose={() => setSelectedTxn(null)} title="Chi Tiết Giao Dịch">
+      <Modal isOpen={!!selectedTxn} onClose={handleCloseTxnModal} title="Chi Tiết Giao Dịch">
          <div className="space-y-4">
             {selectedTxn && (
                 <>
@@ -1254,6 +1344,17 @@ function CashbookPage() {
                       <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 text-sm">
                         <span className="text-gray-500">Phương thức thanh toán:</span>{' '}
                         <span className="font-bold text-blue-700">{getPaymentMethodLabel(selectedInvoice.paymentMethod)}</span>
+                        {selectedInvoice.type === 'EXPORT' && (
+                          <div className="mt-2">
+                            <button
+                              type="button"
+                              onClick={handleOpenEditInvoice}
+                              className="text-xs font-bold text-blue-700 underline"
+                            >
+                              Chỉnh sửa giao dịch
+                            </button>
+                          </div>
+                        )}
                       </div>
                     )}
                     {selectedInvoice && (
@@ -1306,24 +1407,92 @@ function CashbookPage() {
                           </div>
                         ) : (
                           <div className="space-y-3 max-h-60 overflow-y-auto bg-white border border-gray-100 rounded p-2">
-                            {selectedInvoice.lines.map((line, idx) => (
-                              <div key={idx} className="flex flex-col p-3 border-b last:border-0 border-gray-100 bg-gray-50 rounded mb-2">
-                                <div className="flex justify-between w-full mb-2">
-                                  <div className="font-bold text-lg text-gray-800">{line.productName}</div>
-                                  <div className="font-bold text-lg text-blue-600">{formatCurrency(line.amount)}</div>
+                            {isEditInvoiceMode ? (
+                              <>
+                                {editableLines.map((line, idx) => {
+                                  const previewAmount = (line.qtyKg > 0 ? line.qtyKg : line.qtyCon) * line.price;
+                                  return (
+                                    <div key={`${line.productId}-${idx}`} className="p-3 border border-blue-100 bg-blue-50 rounded mb-2">
+                                      <div className="font-bold text-gray-800 mb-2">{line.productName}</div>
+                                      <div className="grid grid-cols-3 gap-2">
+                                        <Input
+                                          label="Kg"
+                                          type="number"
+                                          value={line.qtyKg}
+                                          onChange={(e: any) => handleChangeEditableLine(idx, 'qtyKg', Number(e.target.value))}
+                                        />
+                                        <Input
+                                          label="Con"
+                                          type="number"
+                                          value={line.qtyCon}
+                                          onChange={(e: any) => handleChangeEditableLine(idx, 'qtyCon', Number(e.target.value))}
+                                        />
+                                        <Input
+                                          label="Giá"
+                                          type="number"
+                                          value={line.price}
+                                          onChange={(e: any) => handleChangeEditableLine(idx, 'price', Number(e.target.value))}
+                                        />
+                                      </div>
+                                      <div className="text-right text-sm font-bold text-blue-700 mt-2">{formatCurrency(previewAmount)}</div>
+                                    </div>
+                                  );
+                                })}
+                                <div className="bg-yellow-50 border border-yellow-200 rounded p-2">
+                                  <Input
+                                    label="Lý do chỉnh sửa (bắt buộc)"
+                                    value={editReason}
+                                    onChange={(e: any) => setEditReason(e.target.value)}
+                                    placeholder="VD: Nhập sai số kg khi cân..."
+                                  />
                                 </div>
-                                <div className="flex justify-between text-base text-gray-700 font-medium">
-                                  <span>{line.qtyKg} kg | {line.qtyCon} con</span>
-                                  <span>Giá: {formatCurrency(line.price)}</span>
+                                <div className="flex justify-between items-center px-1">
+                                  <span className="text-sm text-gray-600">Tổng mới:</span>
+                                  <span className="text-lg font-bold text-brand-600">{formatCurrency(editablePreviewTotal)}</span>
                                 </div>
-                              </div>
-                            ))}
+                                <div className="flex gap-2 pt-1">
+                                  <Button variant="secondary" className="flex-1" onClick={() => setIsEditInvoiceMode(false)}>Hủy</Button>
+                                  <Button className="flex-1" onClick={handleSaveEditedInvoice} disabled={isSavingInvoiceEdit}>
+                                    {isSavingInvoiceEdit ? 'Đang lưu...' : 'Lưu chỉnh sửa'}
+                                  </Button>
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                {selectedInvoice.lines.map((line, idx) => (
+                                  <div key={idx} className="flex flex-col p-3 border-b last:border-0 border-gray-100 bg-gray-50 rounded mb-2">
+                                    <div className="flex justify-between w-full mb-2">
+                                      <div className="font-bold text-lg text-gray-800">{line.productName}</div>
+                                      <div className="font-bold text-lg text-blue-600">{formatCurrency(line.amount)}</div>
+                                    </div>
+                                    <div className="flex justify-between text-base text-gray-700 font-medium">
+                                      <span>{line.qtyKg} kg | {line.qtyCon} con</span>
+                                      <span>Giá: {formatCurrency(line.price)}</span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </>
+                            )}
                           </div>
                         )
                     )}
+                    {!isEditInvoiceMode && selectedInvoice && selectedInvoice.type === 'EXPORT' && (selectedInvoice.editHistory || []).length > 0 && (
+                      <div className="bg-white border border-gray-200 rounded-lg p-3">
+                        <div className="text-xs font-bold text-gray-600 uppercase mb-2">Lịch sử chỉnh sửa</div>
+                        <div className="space-y-2 max-h-40 overflow-y-auto">
+                          {(selectedInvoice.editHistory || []).map((entry, idx) => (
+                            <div key={idx} className="text-xs bg-gray-50 border border-gray-100 rounded p-2">
+                              <div className="font-semibold text-gray-700">{new Date(entry.editedAt).toLocaleString('vi-VN')}</div>
+                              <div className="text-gray-600">Lý do: <span className="font-medium">{entry.reason}</span></div>
+                              <div className="text-gray-500">{formatCurrency(entry.previousTotalAmount)} → {formatCurrency(entry.newTotalAmount)}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                 </>
             )}
-            <Button className="w-full" onClick={() => setSelectedTxn(null)}>Đóng</Button>
+            <Button className="w-full" onClick={handleCloseTxnModal}>Đóng</Button>
          </div>
       </Modal>
 
