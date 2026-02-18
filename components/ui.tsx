@@ -13,7 +13,7 @@ export const Button = ({ children, onClick, variant = 'primary', className = '',
 };
 
 export const Card = ({ children, className = '', title }: any) => (
-  <div className={`bg-white rounded-xl shadow-sm border border-gray-100 p-4 ${className}`}>
+  <div className={`surface-card rounded-xl p-4 ${className}`}>
     {title && <h3 className="text-lg font-semibold text-gray-800 mb-3">{title}</h3>}
     {children}
   </div>
@@ -52,7 +52,7 @@ export const Select = ({ label, value, onChange, options, className = '' }: any)
 );
 
 export const StatCard = ({ label, value, color = 'text-gray-900', subtext }: any) => (
-  <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col">
+  <div className="surface-elevated p-4 rounded-xl flex flex-col">
     <span className="text-sm text-gray-500">{label}</span>
     <span className={`text-2xl font-bold ${color} mt-1`}>{value}</span>
     {subtext && <span className="text-xs text-gray-400 mt-1">{subtext}</span>}
@@ -63,7 +63,7 @@ export const Modal = ({ isOpen, onClose, title, children }: any) => {
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 px-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-sm max-h-[90vh] overflow-hidden animate-[fadeIn_0.2s_ease-out] flex flex-col">
+      <div className="surface-elevated rounded-xl w-full max-w-sm max-h-[90vh] overflow-hidden animate-[fadeIn_0.2s_ease-out] flex flex-col">
         <div className="flex justify-between items-center p-4 border-b">
           <h3 className="text-lg font-bold text-gray-800">{title}</h3>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-700">

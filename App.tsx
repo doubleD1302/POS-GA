@@ -1957,14 +1957,14 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-800">
-      <main className="max-w-md mx-auto min-h-screen bg-gray-50 shadow-2xl relative">
-        <div className="p-4 overflow-y-auto h-full no-scrollbar pb-24">
+    <div className="min-h-screen surface-page font-sans text-slate-800">
+      <main className="max-w-md mx-auto min-h-screen surface-card relative">
+        <div className="p-4 overflow-y-auto h-full no-scrollbar pb-24 surface-page">
            {renderPage()}
         </div>
 
         {/* Bottom Navigation for Mobile */}
-        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg z-50 max-w-md mx-auto">
+        <div className="fixed bottom-0 left-0 right-0 surface-elevated border-t border-gray-200 z-50 max-w-md mx-auto">
           <div className="flex justify-around items-center h-16">
             <NavItem id="dashboard" label="Tổng quan" Icon={ICONS.Home} />
             <NavItem id="inventory" label="Kho" Icon={ICONS.Inventory} />

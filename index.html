@@ -23,8 +23,37 @@
       }
     </script>
     <style>
+      :root {
+        --surface-page: #e9eef5;
+        --surface-card: #f8fafc;
+        --surface-elevated: #ffffff;
+        --surface-border: #d8e1ec;
+        --surface-border-strong: #c7d3e2;
+      }
+
       /* Mobile optimization */
-      body { -webkit-tap-highlight-color: transparent; background-color: #f8fafc; }
+      body {
+        -webkit-tap-highlight-color: transparent;
+        background-color: var(--surface-page);
+        color: #1e293b;
+      }
+
+      .surface-page {
+        background-color: var(--surface-page);
+      }
+
+      .surface-card {
+        background-color: var(--surface-card);
+        border: 1px solid var(--surface-border);
+        box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+      }
+
+      .surface-elevated {
+        background-color: var(--surface-elevated);
+        border: 1px solid var(--surface-border-strong);
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.10);
+      }
+
       /* Hide scrollbar for clean UI in lists */
       .no-scrollbar::-webkit-scrollbar { display: none; }
       .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
