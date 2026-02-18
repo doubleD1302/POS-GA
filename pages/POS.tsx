@@ -15,6 +15,7 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
   const [cart, setCart] = useState<any[]>([]);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(PaymentMethod.CASH);
   const [paidAmount, setPaidAmount] = useState(0);
+  const [laborFee, setLaborFee] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [useManualPrice, setUseManualPrice] = useState(false);
 
@@ -66,15 +67,22 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
   }
 
   const totalAmount = cart.reduce((sum, item) => sum + item.amount, 0);
+  const finalTotalAmount = totalAmount + (Number(laborFee) || 0);
 
   // Auto-update paidAmount when method changes
   useEffect(() => {
     if (paymentMethod === PaymentMethod.DEBT) {
       setPaidAmount(0);
     } else {
-      setPaidAmount(totalAmount);
+      setPaidAmount(finalTotalAmount);
     }
-  }, [paymentMethod, totalAmount]);
+  }, [paymentMethod, finalTotalAmount]);
+
+  useEffect(() => {
+    if (cart.length === 0 && laborFee !== 0) {
+      setLaborFee(0);
+    }
+  }, [cart.length, laborFee]);
 
   useEffect(() => {
     const paid = Number(itemPaidAmount) || 0;
@@ -168,15 +176,30 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
       const selectedCustomer = customers.find(c => c.id === selectedCustomerId);
       if (selectedCustomer) db.saveQuickCustomer(selectedCustomer.name, selectedCustomer.phone);
 
+      const saleLines = [...cart.map(c => ({ ...c, paymentMethod }))];
+      if (laborFee > 0) {
+        saleLines.push({
+          productId: 'MANUAL',
+          productName: 'Tiền công',
+          gender: 'MALE',
+          qtyKg: 0,
+          qtyCon: 1,
+          price: laborFee,
+          amount: laborFee,
+          unit: Unit.CON,
+        });
+      }
+
       await db.createSale(
         selectedCustomerId,
         new Date().toISOString().split('T')[0],
-        cart.map(c => ({...c, paymentMethod})), // Pass payment method if needed per line, but db uses invoice level mostly
+        saleLines, // Pass payment method if needed per line, but db uses invoice level mostly
         paidAmount,
         paymentMethod
       );
       alert("Bán hàng thành công!");
       setCart([]);
+      setLaborFee(0);
       setPaidAmount(0);
       setPaymentMethod(PaymentMethod.CASH);
       navigate('dashboard');
@@ -203,9 +226,20 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
     // Format info: "TenKhachHang"
     const info = normalize(customerName).substring(0, 50); 
 
-    const transferAmount = Math.max(0, Number(paidAmount) || Number(totalAmount) || 0);
+    const transferAmount = Math.max(0, Number(paidAmount) || Number(finalTotalAmount) || 0);
     const amountParam = transferAmount > 0 ? `amount=${transferAmount}&` : '';
     return `https://img.vietqr.io/image/${bankId}-${accountNo}-${template}.png?${amountParam}addInfo=${encodeURIComponent(info)}`;
+  };
+
+  const handleLaborFeeChange = (value: number) => {
+    const nextLabor = Math.max(0, Number(value) || 0);
+    setLaborFee(nextLabor);
+  };
+
+  const handleTotalCustomerPayChange = (value: number) => {
+    const totalCustomerPay = Math.max(0, Number(value) || 0);
+    const nextLabor = Math.max(0, totalCustomerPay - totalAmount);
+    setLaborFee(nextLabor);
   };
 
   const handleOpenQrFullscreen = () => {
@@ -357,7 +391,7 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
          </div>
 
          {/* QR Code Section */}
-         {paymentMethod === PaymentMethod.TRANSFER && totalAmount > 0 && (
+        {paymentMethod === PaymentMethod.TRANSFER && finalTotalAmount > 0 && (
             <div className="mb-4 bg-blue-50 p-3 rounded-lg border border-blue-100 text-center">
                {bankSettings && qrLink ? (
                  <>
@@ -398,16 +432,32 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
 
          <div className="flex justify-between items-end mb-4">
             <div>
-                <span className="text-gray-500 text-sm">Tổng đơn</span>
-                <div className="text-2xl font-bold text-brand-600 leading-none">{formatCurrency(totalAmount)}</div>
+             <span className="text-gray-500 text-sm">Tiền gà</span>
+             <div className="text-lg font-bold text-gray-700 leading-none">{formatCurrency(totalAmount)}</div>
+             <div className="text-xs text-gray-500 mt-1">Tiền công: <span className="font-bold">{formatCurrency(laborFee)}</span></div>
+             <div className="text-2xl font-bold text-brand-600 leading-none mt-1">{formatCurrency(finalTotalAmount)}</div>
             </div>
             <div className="w-1/2">
+              <Input
+                label="Tiền công"
+                type="number"
+                value={laborFee}
+                onChange={(e: any) => handleLaborFeeChange(Number(e.target.value))}
+                className="text-right font-bold"
+              />
+              <Input
+                label="Tổng khách phải trả"
+                type="number"
+                value={finalTotalAmount}
+                onChange={(e: any) => handleTotalCustomerPayChange(Number(e.target.value))}
+                className="text-right font-bold mt-2"
+              />
                  <Input 
                     label="Khách trả"
                     type="number" 
                     value={paidAmount} 
                     onChange={(e: any) => setPaidAmount(Number(e.target.value))} 
-                    className="text-right font-bold"
+                className="text-right font-bold mt-2"
                     disabled={paymentMethod === PaymentMethod.DEBT}
                  />
             </div>

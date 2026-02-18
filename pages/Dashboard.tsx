@@ -30,6 +30,7 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
   const [showDeliveryPayment, setShowDeliveryPayment] = useState(false);
   const [deliveryPaymentMethod, setDeliveryPaymentMethod] = useState<PaymentMethod>(PaymentMethod.CASH);
   const [deliveryPaidAmount, setDeliveryPaidAmount] = useState(0);
+  const [deliveryLaborFee, setDeliveryLaborFee] = useState(0);
   const [isDeliveryQrPreviewOpen, setIsDeliveryQrPreviewOpen] = useState(false);
   const [isAiChatOpen, setIsAiChatOpen] = useState(false);
   const [aiQuestion, setAiQuestion] = useState('');
@@ -82,15 +83,17 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
     if (deliveryPaymentMethod === PaymentMethod.DEBT) return;
 
     const paid = Number(deliveryPaidAmount) || 0;
+    const laborFee = Number(deliveryLaborFee) || 0;
     const unitPrice = (Number(poPrice) || 0) * 1000;
     const qtyCon = Number(poCon) || 0;
     const qtyKg = Number(poKg) || 0;
+    const netChickenAmount = paid - laborFee;
 
-    if (qtyCon > 0 || qtyKg > 0 || paid <= 0 || unitPrice <= 0) return;
+    if (qtyCon > 0 || qtyKg > 0 || netChickenAmount <= 0 || unitPrice <= 0) return;
 
-    const inferredKg = paid / unitPrice;
+    const inferredKg = netChickenAmount / unitPrice;
     setPoKg(inferredKg.toFixed(3).replace(/\.0+$/, '').replace(/(\.\d*[1-9])0+$/, '$1'));
-  }, [showDeliveryPayment, deliveryPaymentMethod, deliveryPaidAmount, poPrice, poCon, poKg]);
+  }, [showDeliveryPayment, deliveryPaymentMethod, deliveryPaidAmount, deliveryLaborFee, poPrice, poCon, poKg]);
 
   useEffect(() => {
     if (!showDeliveryPayment) return;
@@ -103,7 +106,7 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
     if (Number(deliveryPaidAmount) !== nextTotal) {
       setDeliveryPaidAmount(nextTotal);
     }
-  }, [showDeliveryPayment, deliveryPaymentMethod, poKg, poCon, poPrice]);
+  }, [showDeliveryPayment, deliveryPaymentMethod, poKg, poCon, poPrice, deliveryLaborFee]);
 
   if (!stats) return <div className="p-4">Đang tải...</div>;
 
@@ -171,12 +174,14 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
       const total = ((Number(order.qtyKg) || 0) > 0 ? (Number(order.qtyKg) || 0) : (Number(order.qtyCon) || 0)) * (Number(order.unitPrice) || 0);
       setDeliveryPaymentMethod(PaymentMethod.CASH);
       setDeliveryPaidAmount(total);
+      setDeliveryLaborFee(0);
     } else {
       setSelectedOrder(null); setPoName(''); setPoPhone(''); setPoProduct(''); setPoCon(''); setPoKg('');
       setPoPrice('');
       const now = new Date(); now.setHours(now.getHours() + 1); now.setMinutes(0); setPoTime(now.toISOString().slice(0, 16)); setPoNote('');
       setDeliveryPaymentMethod(PaymentMethod.CASH);
       setDeliveryPaidAmount(0);
+      setDeliveryLaborFee(0);
     }
     setShowDeliveryPayment(false);
     setIsOrderModalOpen(true);
@@ -287,7 +292,8 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
     const qtyCon = Number(poCon) || 0;
     const qtyKg = Number(poKg) || 0;
     const unitPrice = (Number(poPrice) || 0) * 1000;
-    const orderTotal = (qtyKg > 0 ? qtyKg : qtyCon) * unitPrice;
+    const laborFee = Math.max(0, Number(deliveryLaborFee) || 0);
+    const orderTotal = ((qtyKg > 0 ? qtyKg : qtyCon) * unitPrice) + laborFee;
 
     if (!poName || !poProduct || !poTime) return alert('Vui lòng nhập đủ khách hàng, hàng hoá và thời gian giao.');
     if (qtyCon <= 0 && qtyKg <= 0) return alert('Cần nhập ít nhất Số con hoặc Số kg.');
@@ -332,11 +338,24 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
       gender: 'MALE'
     };
 
+    const saleLines = [saleLine];
+    if (laborFee > 0) {
+      saleLines.push({
+        productId: 'MANUAL',
+        productName: 'Tiền công',
+        qtyCon: 1,
+        qtyKg: 0,
+        unit: Unit.CON,
+        price: laborFee,
+        gender: 'MALE'
+      } as any);
+    }
+
     try {
       db.saveQuickCustomer(poName, poPhone);
       db.saveQuickItem(poProduct);
       setQuickCustomerOptions(db.getQuickCustomers());
-      await db.createSale(customer.id, poTime.split('T')[0], [saleLine], paidAmount, deliveryPaymentMethod);
+      await db.createSale(customer.id, poTime.split('T')[0], saleLines, paidAmount, deliveryPaymentMethod);
       db.savePreOrder({
         ...selectedOrder,
         customerName: poName,
@@ -353,6 +372,7 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
       refreshStats();
       setIsOrderModalOpen(false);
       setShowDeliveryPayment(false);
+      setDeliveryLaborFee(0);
       alert('Đã giao hàng thành công và xuất hoá đơn.');
     } catch (e: any) {
       alert(e.message || 'Không thể xuất hoá đơn giao hàng.');
@@ -508,7 +528,8 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
       window.open(qr, '_blank', 'noopener,noreferrer');
     }
   };
-  const draftTotal = (Number(poKg) > 0 ? Number(poKg) : Number(poCon)) * ((Number(poPrice) || 0) * 1000);
+  const draftBaseTotal = (Number(poKg) > 0 ? Number(poKg) : Number(poCon)) * ((Number(poPrice) || 0) * 1000);
+  const draftTotal = draftBaseTotal + (Number(deliveryLaborFee) || 0);
   const deliveryQrLink = getDeliveryQrLink();
   const customerSuggestions = Array.from(new Set([
     ...customerOptions.map(c => (c.name || '').trim()).filter(Boolean),
@@ -754,7 +775,22 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
                   className={`py-2 text-xs font-bold rounded border ${deliveryPaymentMethod === PaymentMethod.DEBT ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-gray-600 border-gray-300'}`}
                 >Ghi nợ</button>
               </div>
-              <div className="text-xs text-gray-600">Tổng đơn: <span className="font-bold text-brand-600">{formatCurrency(draftTotal)}</span></div>
+              <div className="text-xs text-gray-600">Tiền gà: <span className="font-bold text-gray-700">{formatCurrency(draftBaseTotal)}</span></div>
+              <Input
+                label="Tiền công"
+                type="number"
+                value={deliveryLaborFee}
+                onChange={(e: any) => setDeliveryLaborFee(Math.max(0, Number(e.target.value) || 0))}
+              />
+              <Input
+                label="Tổng khách phải trả"
+                type="number"
+                value={draftTotal}
+                onChange={(e: any) => {
+                  const totalCustomerPay = Math.max(0, Number(e.target.value) || 0);
+                  setDeliveryLaborFee(Math.max(0, totalCustomerPay - draftBaseTotal));
+                }}
+              />
               <Input
                 label="Khách trả"
                 type="number"
@@ -764,7 +800,7 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
               />
               {deliveryPaymentMethod !== PaymentMethod.DEBT && Number(poCon) <= 0 && Number(deliveryPaidAmount) > 0 && Number(poPrice) > 0 && (
                 <div className="text-xs text-gray-600 -mt-1">
-                  Tự tính khối lượng: {((Number(deliveryPaidAmount) || 0) / ((Number(poPrice) || 0) * 1000)).toFixed(3)} kg
+                  Tự tính khối lượng: {Math.max(0, ((Number(deliveryPaidAmount) || 0) - (Number(deliveryLaborFee) || 0)) / ((Number(poPrice) || 0) * 1000)).toFixed(3)} kg
                 </div>
               )}
               {deliveryPaymentMethod === PaymentMethod.TRANSFER && (
