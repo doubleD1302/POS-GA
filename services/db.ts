@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { Batch, BankSettings, CashTransaction, DashboardStats, Invoice, InvoiceLine, Partner, PartnerType, PaymentMethod, Product, TransactionType, Unit, PreOrder, Gender, StockMovement } from '../types';
+import { Batch, BankSettings, CashTransaction, DashboardStats, Invoice, InvoiceLine, Partner, PartnerType, PaymentMethod, Product, TransactionType, Unit, PreOrder, Gender, StockMovement, DeletedTransactionHistory } from '../types';
 
 // --- CẤU HÌNH SUPABASE ---
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -35,6 +35,7 @@ const BASE_KEYS = {
   QUICK_ITEMS: 'quick_items',
   START_DATE: 'start_date',
   STOCK_MOVEMENTS: 'stock_movements',
+  DELETED_TXN_HISTORY: 'deleted_txn_history',
 };
 
 const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
@@ -316,10 +317,152 @@ class Database {
     return productId ? sorted.filter(b => b.productId === productId && b.status === 'OPEN') : sorted;
   }
 
+  private toMovementDate(isoDate: string, fallbackHour: string = '12:00:00') {
+    return this.toISODateTime(isoDate, fallbackHour);
+  }
+
+  private rebuildBatchesAndExportCogs(invoices: Invoice[], sourceBatches: Batch[]) {
+    const clonedBatches = sourceBatches.map(batch => {
+      const qtyRemCon = Number(batch.qtyInCon) || 0;
+      const qtyRemKg = Number(batch.qtyInKg) || 0;
+      return {
+        ...batch,
+        qtyRemCon,
+        qtyRemKg,
+        status: (qtyRemKg <= 0.1 && qtyRemCon <= 0) ? 'CLOSED' as const : 'OPEN' as const,
+      };
+    });
+
+    const sortedExportInvoices = invoices
+      .filter(inv => inv.type === 'EXPORT')
+      .sort((a, b) => {
+        const diff = new Date(a.date).getTime() - new Date(b.date).getTime();
+        if (diff !== 0) return diff;
+        return (a.code || '').localeCompare(b.code || '');
+      });
+
+    const cogsByInvoice: Record<string, number> = {};
+    const saleMovements: StockMovement[] = [];
+
+    sortedExportInvoices.forEach((invoice) => {
+      let invoiceCogs = 0;
+      const saleLines = (invoice.lines || []).filter(line => line.productId !== 'MANUAL');
+
+      saleLines.forEach((line, lineIdx) => {
+        const targetGender = line.gender || 'MALE';
+        let remainingKg = Number(line.qtyKg) || 0;
+        let remainingCon = Number(line.qtyCon) || 0;
+
+        const matchedBatches = clonedBatches
+          .filter(batch => batch.productId === line.productId && batch.gender === targetGender && batch.status === 'OPEN')
+          .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+        for (const batch of matchedBatches) {
+          if (remainingKg <= 0 && remainingCon <= 0) break;
+
+          const takeKg = Math.min(batch.qtyRemKg, remainingKg);
+          const takeCon = Math.min(batch.qtyRemCon, remainingCon);
+
+          if (takeKg > 0 || takeCon > 0) {
+            invoiceCogs += takeKg * (Number(batch.costPerKg) || 0);
+            batch.qtyRemKg -= takeKg;
+            batch.qtyRemCon -= takeCon;
+            remainingKg -= takeKg;
+            remainingCon -= takeCon;
+            batch.status = (batch.qtyRemKg <= 0.1 && batch.qtyRemCon <= 0) ? 'CLOSED' : 'OPEN';
+
+            saleMovements.push({
+              id: `stk-sale-${invoice.id}-${lineIdx}-${batch.id}`,
+              occurredAt: this.toMovementDate(invoice.date, '12:00:00'),
+              productId: line.productId,
+              productName: line.productName,
+              gender: targetGender,
+              batchId: batch.id,
+              invoiceId: invoice.id,
+              invoiceCode: invoice.code,
+              source: 'SALE',
+              deltaKg: -takeKg,
+              deltaCon: -takeCon,
+              afterKg: batch.qtyRemKg,
+              afterCon: batch.qtyRemCon,
+              note: `Xuất bán ${invoice.partnerName} (${invoice.code})`,
+            });
+          }
+        }
+      });
+
+      cogsByInvoice[invoice.id] = invoiceCogs;
+    });
+
+    return { batches: clonedBatches, cogsByInvoice, saleMovements };
+  }
+
+  private buildImportMovements(invoices: Invoice[]): StockMovement[] {
+    return invoices
+      .filter(inv => inv.type === 'IMPORT')
+      .flatMap((invoice) => (invoice.lines || []).map((line, idx) => ({
+        id: `stk-import-${invoice.id}-${idx}`,
+        occurredAt: this.toMovementDate(invoice.date, '08:00:00'),
+        productId: line.productId,
+        productName: line.productName,
+        gender: line.gender || 'MALE',
+        invoiceId: invoice.id,
+        invoiceCode: invoice.code,
+        source: 'IMPORT' as const,
+        deltaKg: Number(line.qtyKg) || 0,
+        deltaCon: Number(line.qtyCon) || 0,
+        note: `Nhập hàng ${invoice.partnerName} (${invoice.code})`,
+      })));
+  }
+
+  private buildAdjustmentMovements(batches: Batch[], products: Product[]): StockMovement[] {
+    const productMap = new Map(products.map(p => [p.id, p.name]));
+    return batches
+      .filter(batch => batch.supplierId === 'INTERNAL')
+      .map((batch) => ({
+        id: `stk-adjust-${batch.id}`,
+        occurredAt: this.toMovementDate(batch.date, '10:00:00'),
+        productId: batch.productId,
+        productName: productMap.get(batch.productId) || batch.supplierName || 'Không rõ sản phẩm',
+        gender: batch.gender || 'MALE',
+        batchId: batch.id,
+        source: 'ADJUSTMENT' as const,
+        deltaKg: Number(batch.qtyInKg) || 0,
+        deltaCon: Number(batch.qtyInCon) || 0,
+        note: batch.supplierName || 'Điều chỉnh kho',
+      }));
+  }
+
+  private getManualStockMovements(): StockMovement[] {
+    return this.load<StockMovement[]>(BASE_KEYS.STOCK_MOVEMENTS, []).filter(item => item.source === 'MANUAL_EDIT');
+  }
+
   getStockMovements(limit?: number): StockMovement[] {
-    const movements = this.load<StockMovement[]>(BASE_KEYS.STOCK_MOVEMENTS, [])
+    const invoices = this.getInvoices();
+    const rawBatches = this.load<Batch[]>(BASE_KEYS.BATCHES, []);
+    const products = this.getProducts();
+    const { saleMovements } = this.rebuildBatchesAndExportCogs(invoices, rawBatches);
+    const importMovements = this.buildImportMovements(invoices);
+    const adjustmentMovements = this.buildAdjustmentMovements(rawBatches, products);
+    const manualMovements = this.getManualStockMovements();
+
+    const all = [...manualMovements, ...importMovements, ...adjustmentMovements, ...saleMovements];
+    const seen = new Set<string>();
+    const movements = all
+      .filter(item => {
+        const key = item.id || `${item.occurredAt}-${item.productId}-${item.gender}-${item.source}-${item.deltaCon}-${item.deltaKg}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
       .sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime());
     return limit ? movements.slice(0, limit) : movements;
+  }
+
+  getDeletedTransactionHistories(limit?: number): DeletedTransactionHistory[] {
+    const logs = this.load<DeletedTransactionHistory[]>(BASE_KEYS.DELETED_TXN_HISTORY, [])
+      .sort((a, b) => new Date(b.deletedAt).getTime() - new Date(a.deletedAt).getTime());
+    return limit ? logs.slice(0, limit) : logs;
   }
 
   getInvoices(): Invoice[] {
@@ -356,8 +499,10 @@ class Database {
 
   private appendStockMovements(entries: StockMovement[]) {
     if (!entries || entries.length === 0) return;
-    const history = this.load<StockMovement[]>(BASE_KEYS.STOCK_MOVEMENTS, []);
-    this.save(BASE_KEYS.STOCK_MOVEMENTS, [...entries, ...history].slice(0, 2000));
+    const manualEntries = entries.filter(item => item.source === 'MANUAL_EDIT');
+    if (manualEntries.length === 0) return;
+    const history = this.getManualStockMovements();
+    this.save(BASE_KEYS.STOCK_MOVEMENTS, [...manualEntries, ...history].slice(0, 2000));
   }
 
   // --- WRITE FUNCTIONS ---
@@ -676,7 +821,6 @@ class Database {
     let totalAmount = 0;
     let totalCOGS = 0;
     const invoiceLines: InvoiceLine[] = [];
-    const stockMovements: StockMovement[] = [];
 
     for (const line of lines) {
       const lineAmount = (line.unit === Unit.KG ? line.qtyKg : line.qtyCon) * line.price;
@@ -715,21 +859,6 @@ class Database {
           batch.qtyRemKg -= takeKg; batch.qtyRemCon -= takeCon;
           remainingKgToDeduct -= takeKg; remainingConToDeduct -= takeCon;
           if (batch.qtyRemKg <= 0.1 && batch.qtyRemCon <= 0) batch.status = 'CLOSED';
-
-          stockMovements.push({
-            id: `stk-${Date.now()}-${batch.id}-${stockMovements.length}`,
-            occurredAt: new Date().toISOString(),
-            productId: line.productId,
-            productName: prod.name,
-            gender: targetGender,
-            batchId: batch.id,
-            source: 'SALE',
-            deltaKg: -takeKg,
-            deltaCon: -takeCon,
-            afterKg: batch.qtyRemKg,
-            afterCon: batch.qtyRemCon,
-            note: `Xuất bán ${customer.name} (${code})`,
-          });
         }
       }
     }
@@ -742,9 +871,15 @@ class Database {
       paymentMethod: finalPaymentMethod,
     };
 
-    this.save(BASE_KEYS.BATCHES, batches);
-    this.appendStockMovements(stockMovements);
-    this.save(BASE_KEYS.INVOICES, [invoice, ...invoices]);
+    const nextInvoices = [invoice, ...invoices];
+    const recalculated = this.rebuildBatchesAndExportCogs(nextInvoices, batches);
+    const invoicesWithCogs = nextInvoices.map(inv => inv.type === 'EXPORT'
+      ? { ...inv, cogs: recalculated.cogsByInvoice[inv.id] || 0 }
+      : inv
+    );
+
+    this.save(BASE_KEYS.BATCHES, recalculated.batches);
+    this.save(BASE_KEYS.INVOICES, invoicesWithCogs);
 
     if (paidAmount > 0) {
       const description = finalPaymentMethod === PaymentMethod.TRANSFER
@@ -785,7 +920,8 @@ class Database {
     const normalizedLines: InvoiceLine[] = updatedLinesInput.map((line) => {
       const qtyKg = Math.max(0, Number(line.qtyKg) || 0);
       const qtyCon = Math.max(0, Number(line.qtyCon) || 0);
-      const price = Math.max(0, Number(line.price) || 0);
+      const rawPrice = Number(line.price) || 0;
+      const price = line.productId === 'MANUAL' ? rawPrice : Math.max(0, rawPrice);
       const amount = (qtyKg > 0 ? qtyKg : qtyCon) * price;
 
       return {
@@ -865,7 +1001,15 @@ class Database {
     };
 
     invoices[invoiceIndex] = updatedInvoice;
-    this.save(BASE_KEYS.INVOICES, invoices);
+    const rawBatches = this.load<Batch[]>(BASE_KEYS.BATCHES, []);
+    const recalculated = this.rebuildBatchesAndExportCogs(invoices, rawBatches);
+    const invoicesWithCogs = invoices.map(inv => inv.type === 'EXPORT'
+      ? { ...inv, cogs: recalculated.cogsByInvoice[inv.id] || 0 }
+      : inv
+    );
+
+    this.save(BASE_KEYS.BATCHES, recalculated.batches);
+    this.save(BASE_KEYS.INVOICES, invoicesWithCogs);
 
     const partners = this.getPartners();
     const partner = partners.find(p => p.id === updatedInvoice.partnerId);
@@ -909,6 +1053,151 @@ class Database {
 
     await delay(150);
     return updatedInvoice;
+  }
+
+  getDeleteTransactionImpact(params: { invoiceId?: string; cashTransactionId?: string }) {
+    const { invoiceId, cashTransactionId } = params;
+    const invoices = this.getInvoices();
+    const cashTxns = this.getCashTransactions();
+
+    if (invoiceId) {
+      const invoice = invoices.find(inv => inv.id === invoiceId);
+      if (!invoice) throw new Error('Không tìm thấy hoá đơn để xoá.');
+
+      let stockIncreaseCon = 0;
+      let stockDecreaseCon = 0;
+      let stockIncreaseKg = 0;
+      let stockDecreaseKg = 0;
+
+      (invoice.lines || []).forEach((line) => {
+        if (line.productId === 'MANUAL') return;
+        const qtyCon = Number(line.qtyCon) || 0;
+        const qtyKg = Number(line.qtyKg) || 0;
+        if (invoice.type === 'EXPORT') {
+          stockIncreaseCon += qtyCon;
+          stockIncreaseKg += qtyKg;
+        } else {
+          stockDecreaseCon += qtyCon;
+          stockDecreaseKg += qtyKg;
+        }
+      });
+
+      const linkedCash = cashTxns.filter(txn => txn.refId === invoiceId);
+      const cashDelta = linkedCash.reduce((sum, txn) => {
+        if (txn.type === TransactionType.INCOME) return sum - (Number(txn.amount) || 0);
+        if (txn.type === TransactionType.EXPENSE) return sum + (Number(txn.amount) || 0);
+        return sum;
+      }, 0);
+
+      const partnerDebtDelta = invoice.type === 'EXPORT' ? -(Number(invoice.debtAmount) || 0) : 0;
+
+      return {
+        targetType: 'INVOICE' as const,
+        invoice,
+        linkedCash,
+        impactSummary: {
+          stockIncreaseCon,
+          stockDecreaseCon,
+          stockIncreaseKg,
+          stockDecreaseKg,
+          partnerDebtDelta,
+          cashDelta,
+        }
+      };
+    }
+
+    if (cashTransactionId) {
+      const txn = cashTxns.find(item => item.id === cashTransactionId);
+      if (!txn) throw new Error('Không tìm thấy giao dịch tiền để xoá.');
+      const cashDelta = txn.type === TransactionType.INCOME ? -(Number(txn.amount) || 0) : (Number(txn.amount) || 0);
+      return {
+        targetType: 'CASH_TXN' as const,
+        cashTransaction: txn,
+        impactSummary: {
+          stockIncreaseCon: 0,
+          stockDecreaseCon: 0,
+          stockIncreaseKg: 0,
+          stockDecreaseKg: 0,
+          partnerDebtDelta: 0,
+          cashDelta,
+        }
+      };
+    }
+
+    throw new Error('Thiếu thông tin giao dịch cần xoá.');
+  }
+
+  async deleteTransactionHistory(params: { invoiceId?: string; cashTransactionId?: string; reason: string }) {
+    const reason = (params.reason || '').trim();
+    if (!reason) throw new Error('Vui lòng nhập lý do xoá giao dịch.');
+
+    const preview = this.getDeleteTransactionImpact({ invoiceId: params.invoiceId, cashTransactionId: params.cashTransactionId });
+    const logs = this.getDeletedTransactionHistories();
+
+    if (preview.targetType === 'INVOICE') {
+      const invoice = preview.invoice;
+      const invoices = this.getInvoices().filter(inv => inv.id !== invoice.id);
+      const cashTxns = this.getCashTransactions().filter(txn => txn.refId !== invoice.id);
+
+      let batches = this.load<Batch[]>(BASE_KEYS.BATCHES, []);
+      if (invoice.type === 'IMPORT') {
+        batches = batches.filter(batch => !(batch.code || '').startsWith(`${invoice.code}-B`));
+      }
+
+      const recalculated = this.rebuildBatchesAndExportCogs(invoices, batches);
+      const invoicesWithCogs = invoices.map(inv => inv.type === 'EXPORT'
+        ? { ...inv, cogs: recalculated.cogsByInvoice[inv.id] || 0 }
+        : inv
+      );
+
+      const partners = this.getPartners();
+      if (invoice.type === 'EXPORT') {
+        const customer = partners.find(p => p.id === invoice.partnerId);
+        if (customer) {
+          customer.debt = Math.max(0, (Number(customer.debt) || 0) - (Number(invoice.debtAmount) || 0));
+        }
+      }
+
+      const deletedLog: DeletedTransactionHistory = {
+        id: `del-${Date.now()}-${invoice.id}`,
+        deletedAt: new Date().toISOString(),
+        reason,
+        type: 'INVOICE',
+        invoiceId: invoice.id,
+        invoiceCode: invoice.code,
+        snapshot: { invoice: { ...invoice } },
+        impactSummary: preview.impactSummary,
+      };
+
+      this.save(BASE_KEYS.BATCHES, recalculated.batches);
+      this.save(BASE_KEYS.INVOICES, invoicesWithCogs);
+      this.save(BASE_KEYS.CASH, cashTxns);
+      this.save(BASE_KEYS.PARTNERS, partners);
+      this.save(BASE_KEYS.DELETED_TXN_HISTORY, [deletedLog, ...logs].slice(0, 2000));
+
+      await delay(150);
+      return deletedLog;
+    }
+
+    const txn = preview.cashTransaction;
+    if (!txn) throw new Error('Không tìm thấy giao dịch tiền để xoá.');
+
+    const cashTxns = this.getCashTransactions().filter(item => item.id !== txn.id);
+    const deletedLog: DeletedTransactionHistory = {
+      id: `del-${Date.now()}-${txn.id}`,
+      deletedAt: new Date().toISOString(),
+      reason,
+      type: 'CASH_TXN',
+      cashTransactionId: txn.id,
+      snapshot: { cashTransaction: { ...txn } },
+      impactSummary: preview.impactSummary,
+    };
+
+    this.save(BASE_KEYS.CASH, cashTxns);
+    this.save(BASE_KEYS.DELETED_TXN_HISTORY, [deletedLog, ...logs].slice(0, 2000));
+
+    await delay(120);
+    return deletedLog;
   }
 
   getDashboardStats(): DashboardStats {

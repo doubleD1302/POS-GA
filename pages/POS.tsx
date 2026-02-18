@@ -5,7 +5,7 @@ import { Button, Input, Select, Card, Modal } from '../components/ui';
 import { formatCurrency, ICONS } from '../constants';
 
 export default function POS({ navigate }: { navigate: (page: string) => void }) {
-  const [saleGender, setSaleGender] = useState<'MALE'|'FEMALE'>('MALE');
+  const [saleGender, setSaleGender] = useState<'' | 'MALE' | 'FEMALE'>('');
   const [products, setProducts] = useState<Product[]>([]);
   const [batches, setBatches] = useState<Batch[]>([]);
   const [customers, setCustomers] = useState<Partner[]>([]);
@@ -45,7 +45,6 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
     const custs = db.getPartners(PartnerType.CUSTOMER);
     setCustomers(custs);
     if (selectId) setSelectedCustomerId(selectId);
-    else if (custs.length > 0 && !selectedCustomerId) setSelectedCustomerId(custs[0].id);
   }
 
   const handleAddCustomer = () => {
@@ -92,10 +91,8 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
   const openProductModal = (prod: Product) => {
     setActiveProduct(prod);
     setIsManualItem(false);
-    setSaleGender('MALE'); // Mặc định chọn Trống trước
-    // Lấy giá Trống mặc định
-    const defaultP = (prod.priceMale || 0) / 1000;
-    setPrice(defaultP.toString());
+    setSaleGender('');
+    setPrice('');
     
     setQtyKg('');
     setQtyCon('');
@@ -131,6 +128,11 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
         return;
     }
 
+    if (!isManualItem && !saleGender) {
+      alert("Vui lòng chọn giới tính gà (Trống/Mái)");
+      return;
+    }
+
     if (isManualItem) {
       db.saveQuickItem(manualName);
     } else if (activeProduct?.name) {
@@ -139,8 +141,8 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
 
     setCart([...cart, {
       productId: activeProduct.id,
-      productName: isManualItem ? manualName : `${activeProduct.name} ${saleGender === 'MALE' ? '(Trống)' : '(Mái)'}`, // Thêm suffix tên cho dễ nhìn
-      gender: saleGender, // <--- QUAN TRỌNG: Để DB biết trừ kho lô nào
+      productName: isManualItem ? manualName : `${activeProduct.name} ${saleGender === 'MALE' ? '(Trống)' : '(Mái)'}`,
+      gender: (saleGender || 'MALE'),
       qtyKg: k,
       qtyCon: c,
       price: p,
@@ -289,6 +291,7 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
                    onChange={(e) => setSelectedCustomerId(e.target.value)}
                    className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-brand-500"
                 >
+                   <option value="" className="bg-slate-700 text-gray-300">-- Chọn khách hàng --</option>
                    {customers.map(s => <option key={s.id} value={s.id} className="bg-slate-700 text-white">{s.name}</option>)}
                 </select>
             </div>
@@ -513,6 +516,10 @@ export default function POS({ navigate }: { navigate: (page: string) => void }) 
                     </button>
                 </div>
             )}
+
+                  {!isManualItem && !saleGender && (
+                    <div className="text-[11px] text-orange-600 font-semibold -mt-2">⚠ Vui lòng chọn giới tính trước khi thêm vào giỏ.</div>
+                  )}
 
             <div className="flex gap-3">
                 <div className="flex-1">

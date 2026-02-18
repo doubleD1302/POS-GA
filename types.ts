@@ -85,12 +85,36 @@ export interface StockMovement {
   productName: string;
   gender: Gender;
   batchId?: string;
+  invoiceId?: string;
+  invoiceCode?: string;
   source: 'IMPORT' | 'SALE' | 'ADJUSTMENT' | 'MANUAL_EDIT';
   deltaKg: number;
   deltaCon: number;
   afterKg?: number;
   afterCon?: number;
   note?: string;
+}
+
+export interface DeletedTransactionHistory {
+  id: string;
+  deletedAt: string;
+  reason: string;
+  type: 'INVOICE' | 'CASH_TXN';
+  invoiceId?: string;
+  invoiceCode?: string;
+  cashTransactionId?: string;
+  snapshot: {
+    invoice?: Invoice;
+    cashTransaction?: CashTransaction;
+  };
+  impactSummary: {
+    stockIncreaseCon: number;
+    stockDecreaseCon: number;
+    stockIncreaseKg: number;
+    stockDecreaseKg: number;
+    partnerDebtDelta: number;
+    cashDelta: number;
+  };
 }
 
 export interface InvoiceLine {

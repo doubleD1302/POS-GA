@@ -44,11 +44,53 @@ export default function Inventory() {
 
   const today = new Date().toISOString().split('T')[0];
   const todayMovements = stockMovements.filter(m => m.occurredAt.startsWith(today));
-  const todayDeltaKg = todayMovements.reduce((sum, m) => sum + m.deltaKg, 0);
-  const todayDeltaCon = todayMovements.reduce((sum, m) => sum + m.deltaCon, 0);
-  const historyDates = Array.from(new Set(stockMovements.map(m => m.occurredAt.split('T')[0]).filter(Boolean))).sort((a, b) => b.localeCompare(a));
+  const historyDates: string[] = Array.from(
+    new Set(stockMovements.map(m => m.occurredAt.split('T')[0]).filter(Boolean))
+  ) as string[];
+  historyDates.sort((a, b) => b.localeCompare(a));
   const effectiveHistoryDate = activeHistoryDate || historyDates[0] || '';
   const historyByActiveDate = stockMovements.filter(m => m.occurredAt.startsWith(effectiveHistoryDate));
+
+  const summarizeMovements = (movements: StockMovement[]) => {
+    let totalIncreaseCon = 0;
+    let totalDecreaseCon = 0;
+    let totalIncreaseKg = 0;
+    let totalDecreaseKg = 0;
+    const increaseByProduct: Record<string, number> = {};
+    const decreaseByProduct: Record<string, number> = {};
+
+    movements.forEach((movement) => {
+      const productKey = `${movement.productName || 'Không rõ loại gà'} (${movement.gender === 'FEMALE' ? 'Mái' : 'Trống'})`;
+
+      if (movement.deltaCon > 0) {
+        totalIncreaseCon += movement.deltaCon;
+        increaseByProduct[productKey] = (increaseByProduct[productKey] || 0) + movement.deltaCon;
+      } else if (movement.deltaCon < 0) {
+        const absCon = Math.abs(movement.deltaCon);
+        totalDecreaseCon += absCon;
+        decreaseByProduct[productKey] = (decreaseByProduct[productKey] || 0) + absCon;
+      }
+
+      if (movement.deltaKg > 0) totalIncreaseKg += movement.deltaKg;
+      else if (movement.deltaKg < 0) totalDecreaseKg += Math.abs(movement.deltaKg);
+    });
+
+    const toSortedEntries = (source: Record<string, number>) =>
+      Object.entries(source).sort((a, b) => b[1] - a[1]);
+
+    return {
+      totalIncreaseCon,
+      totalDecreaseCon,
+      totalIncreaseKg,
+      totalDecreaseKg,
+      increaseByProduct: toSortedEntries(increaseByProduct),
+      decreaseByProduct: toSortedEntries(decreaseByProduct),
+      txCount: movements.length,
+    };
+  };
+
+  const todaySummary = summarizeMovements(todayMovements);
+  const historySummary = summarizeMovements(historyByActiveDate);
 
   useEffect(() => {
     if (!historyDates.length) {
@@ -60,19 +102,6 @@ export default function Inventory() {
       setActiveHistoryDate(historyDates[0]);
     }
   }, [stockMovements]);
-
-  const movementSourceLabel = (source: StockMovement['source']) => {
-    if (source === 'IMPORT') return 'Nhập hàng';
-    if (source === 'SALE') return 'Xuất bán';
-    if (source === 'ADJUSTMENT') return 'Điều chỉnh';
-    return 'Sửa tay';
-  };
-
-  const formatMovementTime = (iso: string) => {
-    const date = new Date(iso);
-    if (isNaN(date.getTime())) return iso;
-    return date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-  };
 
   // --- LOGIC SẢN PHẨM ---
   const handleOpenModal = (product?: Product) => {
@@ -221,24 +250,57 @@ export default function Inventory() {
             </button>
           </div>
           <div className="text-xs text-gray-600 mt-1">
-            {todayMovements.length} giao dịch · Kg: <span className={`font-bold ${todayDeltaKg >= 0 ? 'text-green-600' : 'text-red-600'}`}>{todayDeltaKg >= 0 ? '+' : ''}{todayDeltaKg.toFixed(1)}</span> · Con: <span className={`font-bold ${todayDeltaCon >= 0 ? 'text-green-600' : 'text-red-600'}`}>{todayDeltaCon >= 0 ? '+' : ''}{todayDeltaCon}</span>
+            {todaySummary.txCount} giao dịch · Tăng: <span className="font-bold text-green-600">+{todaySummary.totalIncreaseCon} con</span> · Giảm: <span className="font-bold text-red-600">-{todaySummary.totalDecreaseCon} con</span>
           </div>
         </div>
-        <div className="max-h-64 overflow-y-auto divide-y divide-gray-100">
-          {todayMovements.length === 0 ? (
-            <div className="p-4 text-sm text-gray-500">Hôm nay chưa có biến động kho.</div>
+        <div className="p-3 bg-white">
+          {todaySummary.txCount === 0 ? (
+            <div className="p-2 text-sm text-gray-500">Hôm nay chưa có biến động kho.</div>
           ) : (
-            todayMovements.slice(0, 15).map((movement) => (
-              <div key={movement.id} className="px-4 py-2 text-sm grid grid-cols-12 gap-2 items-center">
-                <div className="col-span-4 font-semibold text-gray-800 truncate">{movement.productName}</div>
-                <div className="col-span-2 text-xs text-gray-500">{movement.gender === 'MALE' ? 'Trống' : 'Mái'}</div>
-                <div className="col-span-3 text-xs text-gray-600">{movementSourceLabel(movement.source)}</div>
-                <div className="col-span-2 text-right font-mono">
-                  <span className={movement.deltaCon >= 0 ? 'text-green-600' : 'text-red-600'}>{movement.deltaCon >= 0 ? '+' : ''}{movement.deltaCon} con</span>
+            <>
+              <div className="grid grid-cols-2 gap-2 mb-3">
+                <div className="bg-green-50 border border-green-100 rounded-lg p-2">
+                  <div className="text-[11px] font-bold text-green-700 uppercase">Tổng tăng</div>
+                  <div className="text-lg font-black text-green-600">+{todaySummary.totalIncreaseCon} con</div>
+                  <div className="text-[11px] text-green-700">{todaySummary.totalIncreaseKg.toFixed(1)} kg</div>
                 </div>
-                <div className="col-span-1 text-[11px] text-gray-400 text-right">{formatMovementTime(movement.occurredAt)}</div>
+                <div className="bg-red-50 border border-red-100 rounded-lg p-2">
+                  <div className="text-[11px] font-bold text-red-700 uppercase">Tổng giảm</div>
+                  <div className="text-lg font-black text-red-600">-{todaySummary.totalDecreaseCon} con</div>
+                  <div className="text-[11px] text-red-700">{todaySummary.totalDecreaseKg.toFixed(1)} kg</div>
+                </div>
               </div>
-            ))
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="border border-green-100 rounded-lg overflow-hidden">
+                  <div className="bg-green-50 px-3 py-2 text-xs font-bold text-green-700 uppercase">Loại gà tăng (con)</div>
+                  <div className="max-h-40 overflow-y-auto divide-y divide-green-50">
+                    {todaySummary.increaseByProduct.length === 0 ? (
+                      <div className="px-3 py-2 text-xs text-gray-500">Không có loại gà tăng.</div>
+                    ) : todaySummary.increaseByProduct.map(([product, qty]) => (
+                      <div key={`inc-${product}`} className="px-3 py-2 text-sm flex justify-between items-center">
+                        <span className="text-gray-700 truncate pr-2">{product}</span>
+                        <span className="font-bold text-green-600">+{qty}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="border border-red-100 rounded-lg overflow-hidden">
+                  <div className="bg-red-50 px-3 py-2 text-xs font-bold text-red-700 uppercase">Loại gà giảm (con)</div>
+                  <div className="max-h-40 overflow-y-auto divide-y divide-red-50">
+                    {todaySummary.decreaseByProduct.length === 0 ? (
+                      <div className="px-3 py-2 text-xs text-gray-500">Không có loại gà giảm.</div>
+                    ) : todaySummary.decreaseByProduct.map(([product, qty]) => (
+                      <div key={`dec-${product}`} className="px-3 py-2 text-sm flex justify-between items-center">
+                        <span className="text-gray-700 truncate pr-2">{product}</span>
+                        <span className="font-bold text-red-600">-{qty}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </>
           )}
         </div>
 
@@ -262,26 +324,54 @@ export default function Inventory() {
               )}
             </div>
 
-            <div className="max-h-72 overflow-y-auto divide-y divide-gray-100 bg-white">
-              {historyByActiveDate.length === 0 ? (
-                <div className="p-4 text-sm text-gray-500">Không có dữ liệu trong ngày này.</div>
+            <div className="p-3 bg-white">
+              {historySummary.txCount === 0 ? (
+                <div className="p-2 text-sm text-gray-500">Không có dữ liệu trong ngày này.</div>
               ) : (
-                historyByActiveDate.map((movement) => (
-                  <div key={`history-${movement.id}`} className="px-4 py-2 grid grid-cols-12 gap-2 items-center text-sm">
-                    <div className="col-span-4">
-                      <div className="font-semibold text-gray-800 truncate">{movement.productName}</div>
-                      <div className="text-[11px] text-gray-500">{movement.gender === 'MALE' ? 'Trống' : 'Mái'}</div>
+                <>
+                  <div className="grid grid-cols-2 gap-2 mb-3">
+                    <div className="bg-green-50 border border-green-100 rounded-lg p-2">
+                      <div className="text-[11px] font-bold text-green-700 uppercase">Tổng tăng</div>
+                      <div className="text-lg font-black text-green-600">+{historySummary.totalIncreaseCon} con</div>
+                      <div className="text-[11px] text-green-700">{historySummary.totalIncreaseKg.toFixed(1)} kg</div>
                     </div>
-                    <div className="col-span-3 text-xs text-gray-600">{movementSourceLabel(movement.source)}</div>
-                    <div className="col-span-2 font-mono text-xs">
-                      <span className={movement.deltaKg >= 0 ? 'text-green-600' : 'text-red-600'}>{movement.deltaKg >= 0 ? '+' : ''}{movement.deltaKg.toFixed(1)} kg</span>
+                    <div className="bg-red-50 border border-red-100 rounded-lg p-2">
+                      <div className="text-[11px] font-bold text-red-700 uppercase">Tổng giảm</div>
+                      <div className="text-lg font-black text-red-600">-{historySummary.totalDecreaseCon} con</div>
+                      <div className="text-[11px] text-red-700">{historySummary.totalDecreaseKg.toFixed(1)} kg</div>
                     </div>
-                    <div className="col-span-2 font-mono text-xs text-right">
-                      <span className={movement.deltaCon >= 0 ? 'text-green-600' : 'text-red-600'}>{movement.deltaCon >= 0 ? '+' : ''}{movement.deltaCon} con</span>
-                    </div>
-                    <div className="col-span-1 text-[11px] text-gray-400 text-right">{formatMovementTime(movement.occurredAt)}</div>
                   </div>
-                ))
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="border border-green-100 rounded-lg overflow-hidden">
+                      <div className="bg-green-50 px-3 py-2 text-xs font-bold text-green-700 uppercase">Loại gà tăng (con)</div>
+                      <div className="max-h-40 overflow-y-auto divide-y divide-green-50">
+                        {historySummary.increaseByProduct.length === 0 ? (
+                          <div className="px-3 py-2 text-xs text-gray-500">Không có loại gà tăng.</div>
+                        ) : historySummary.increaseByProduct.map(([product, qty]) => (
+                          <div key={`history-inc-${product}`} className="px-3 py-2 text-sm flex justify-between items-center">
+                            <span className="text-gray-700 truncate pr-2">{product}</span>
+                            <span className="font-bold text-green-600">+{qty}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="border border-red-100 rounded-lg overflow-hidden">
+                      <div className="bg-red-50 px-3 py-2 text-xs font-bold text-red-700 uppercase">Loại gà giảm (con)</div>
+                      <div className="max-h-40 overflow-y-auto divide-y divide-red-50">
+                        {historySummary.decreaseByProduct.length === 0 ? (
+                          <div className="px-3 py-2 text-xs text-gray-500">Không có loại gà giảm.</div>
+                        ) : historySummary.decreaseByProduct.map(([product, qty]) => (
+                          <div key={`history-dec-${product}`} className="px-3 py-2 text-sm flex justify-between items-center">
+                            <span className="text-gray-700 truncate pr-2">{product}</span>
+                            <span className="font-bold text-red-600">-{qty}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </>
               )}
             </div>
           </div>

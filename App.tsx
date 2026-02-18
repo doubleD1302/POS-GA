@@ -6,7 +6,7 @@ import Inventory from './pages/Inventory';
 import { ICONS, formatCurrency, formatDate} from './constants';
 import { db } from './services/db';
 import { Button, Input, Select, Card, Modal } from './components/ui';
-import { Partner, PartnerType, BankSettings, Invoice, CashTransaction, PreOrder, PaymentMethod, Product, Gender, SupplierCategory, Unit } from './types';
+import { Partner, PartnerType, BankSettings, Invoice, CashTransaction, PreOrder, PaymentMethod, Product, Gender, SupplierCategory, Unit, DeletedTransactionHistory } from './types';
 
 // --- LOGIN COMPONENT ---
 // --- LOGIN COMPONENT (ĐÃ SỬA ĐỂ KÍCH HOẠT ĐỒNG BỘ) ---
@@ -679,6 +679,8 @@ function CashbookPage() {
 
   const [totalReceivables, setTotalReceivables] = useState(0);
   const [chartData, setChartData] = useState<any[]>([]);
+  const [deletedTxns, setDeletedTxns] = useState<DeletedTransactionHistory[]>([]);
+  const [historyView, setHistoryView] = useState<'ACTIVE' | 'DELETED'>('ACTIVE');
   
   // Detail Modal & Settings Modal & PreOrder (Giữ nguyên logic cũ)
   const [selectedTxn, setSelectedTxn] = useState<CashTransaction | null>(null);
@@ -811,6 +813,7 @@ function CashbookPage() {
     if (bs) { setBankId(bs.bankId); setAccNo(bs.accountNo); setAccName(bs.accountName); }
     
     reloadPreOrders();
+    setDeletedTxns(db.getDeletedTransactionHistories(200));
 
     // --- LOGIC BIỂU ĐỒ (Cập nhật theo viewMode) ---
     prepareChartData();
@@ -1337,11 +1340,60 @@ function CashbookPage() {
   }
   const formatTime = (isoString: string) => { try { const d = new Date(isoString); return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`; } catch(e) { return ''; } }
   const formatDateShort = (isoString: string) => { try { const d = new Date(isoString); return `${d.getDate()}/${d.getMonth()+1}`; } catch (e) { return ''; } }
+  const getInvoiceGenderSummary = (invoiceId?: string) => {
+    if (!invoiceId) return '';
+    const inv = invoices.find(item => item.id === invoiceId);
+    if (!inv) return '';
+    const summary = (inv.lines || [])
+      .filter(line => line.productId !== 'MANUAL')
+      .map(line => `${line.productName} (${line.gender === 'FEMALE' ? 'Mái' : 'Trống'})`);
+    return Array.from(new Set(summary)).join(' • ');
+  };
   const getPaymentMethodLabel = (method?: PaymentMethod) => {
     if (method === PaymentMethod.CASH) return 'Tiền mặt';
     if (method === PaymentMethod.TRANSFER) return 'Chuyển khoản';
     if (method === PaymentMethod.DEBT) return 'Ghi nợ';
     return 'Chưa xác định';
+  }
+
+  const handleDeleteSelectedTransaction = async () => {
+    if (!selectedTxn) return;
+
+    const invoiceId = selectedInvoice?.id || selectedTxn.refId;
+    const cashTransactionId = invoiceId ? undefined : selectedTxn.id;
+
+    try {
+      const preview = db.getDeleteTransactionImpact({ invoiceId, cashTransactionId });
+      const s = preview.impactSummary;
+      const warning = [
+        '⚠ XÓA GIAO DỊCH SẼ LÀM THAY ĐỔI DỮ LIỆU:',
+        `- Tồn kho tăng: +${s.stockIncreaseCon} con (${s.stockIncreaseKg.toFixed(1)}kg)`,
+        `- Tồn kho giảm: -${s.stockDecreaseCon} con (${s.stockDecreaseKg.toFixed(1)}kg)`,
+        `- Công nợ thay đổi: ${formatCurrency(s.partnerDebtDelta)}`,
+        `- Tiền quỹ thay đổi: ${formatCurrency(s.cashDelta)}`,
+        '',
+        'Bạn có chắc chắn muốn xoá?'
+      ].join('\n');
+
+      const confirmed = window.confirm(warning);
+      if (!confirmed) return;
+
+      const reason = (window.prompt('Nhập lý do xoá giao dịch (bắt buộc):') || '').trim();
+      if (!reason) {
+        alert('Bạn phải nhập lý do thì mới có thể xoá.');
+        return;
+      }
+
+      await db.deleteTransactionHistory({ invoiceId, cashTransactionId, reason });
+      setTxns(db.getCashTransactions());
+      setInvoices(db.getInvoices());
+      setDeletedTxns(db.getDeletedTransactionHistories(200));
+      setSelectedTxn(null);
+      setSelectedInvoice(undefined);
+      alert('Đã xoá giao dịch và ghi vào lịch sử xoá.');
+    } catch (e: any) {
+      alert(e.message || 'Không thể xoá giao dịch.');
+    }
   }
 
   return (
@@ -1442,31 +1494,77 @@ function CashbookPage() {
       </Card>
 
       {/* TRANSACTION LIST (Đã lọc theo thời gian) */}
-      <h3 className="font-bold text-gray-700 mb-2">Lịch sử giao dịch ({mixedList.length})</h3>
-      
-      <div className="space-y-2">
-        {mixedList.length === 0 ? <p className="text-sm text-gray-400 italic text-center py-4">Không có giao dịch trong kỳ này</p> :
-        mixedList.map(t => (
-          <div 
-            key={t.id} 
-            onDoubleClick={() => handleSelectTxn(t)}
-            className="surface-card p-3 rounded flex justify-between items-center active:bg-gray-50 cursor-pointer"
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="font-bold text-gray-700">{historyView === 'ACTIVE' ? `Lịch sử giao dịch (${mixedList.length})` : `Lịch sử xoá (${deletedTxns.length})`}</h3>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setHistoryView('ACTIVE')}
+            className={`text-xs px-2 py-1 rounded border font-bold ${historyView === 'ACTIVE' ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-gray-600 border-gray-300'}`}
           >
-            <div className="flex-1 min-w-0 pr-2">
-              <div className="flex justify-between items-baseline">
-                <div className="font-medium text-gray-800 text-sm truncate">{t.description}</div>
-                <div className="text-[10px] text-gray-400 whitespace-nowrap ml-2">{formatTime(t.date)} {formatDateShort(t.date)}</div>
+            Lịch sử giao dịch
+          </button>
+          <button
+            onClick={() => setHistoryView('DELETED')}
+            className={`text-xs px-2 py-1 rounded border font-bold ${historyView === 'DELETED' ? 'bg-red-600 text-white border-red-600' : 'bg-white text-gray-600 border-gray-300'}`}
+          >
+            Lịch sử xoá
+          </button>
+        </div>
+      </div>
+
+      {historyView === 'ACTIVE' ? (
+        <div className="space-y-2">
+          {mixedList.length === 0 ? <p className="text-sm text-gray-400 italic text-center py-4">Không có giao dịch trong kỳ này</p> :
+          mixedList.map(t => (
+            <div 
+              key={t.id} 
+              onDoubleClick={() => handleSelectTxn(t)}
+              className="surface-card p-3 rounded flex justify-between items-center active:bg-gray-50 cursor-pointer"
+            >
+              <div className="flex-1 min-w-0 pr-2">
+                <div className="flex justify-between items-baseline">
+                  <div className="font-medium text-gray-800 text-sm truncate">{t.description}</div>
+                  <div className="text-[10px] text-gray-400 whitespace-nowrap ml-2">{formatTime(t.date)} {formatDateShort(t.date)}</div>
+                </div>
+                {t.refId && (
+                  <div className="text-[11px] text-gray-500 mt-1 truncate">{getInvoiceGenderSummary(t.refId)}</div>
+                )}
+              </div>
+              <div className={`font-bold whitespace-nowrap text-sm ${
+                  t.type === 'INCOME' ? 'text-green-600' : 
+                  t.type === 'DEBT' ? 'text-orange-500' : 'text-red-600'
+              }`}>
+                 {t.type === 'INCOME' ? '+' : '-'}{Number(t.amount).toLocaleString('vi-VN')}
               </div>
             </div>
-            <div className={`font-bold whitespace-nowrap text-sm ${
-                t.type === 'INCOME' ? 'text-green-600' : 
-                t.type === 'DEBT' ? 'text-orange-500' : 'text-red-600'
-            }`}>
-               {t.type === 'INCOME' ? '+' : '-'}{Number(t.amount).toLocaleString('vi-VN')}
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {deletedTxns.length === 0 ? <p className="text-sm text-gray-400 italic text-center py-4">Chưa có giao dịch bị xoá</p> : deletedTxns.map(item => (
+            <div key={item.id} className="surface-card p-3 rounded border border-red-100">
+              <div className="flex justify-between items-start gap-2">
+                <div>
+                  <div className="font-bold text-sm text-gray-800">
+                    {item.type === 'INVOICE'
+                      ? `Đã xoá hoá đơn ${item.invoiceCode || item.invoiceId}`
+                      : `Đã xoá giao dịch tiền ${item.cashTransactionId}`}
+                  </div>
+                  <div className="text-[11px] text-gray-500 mt-1">{new Date(item.deletedAt).toLocaleString('vi-VN')}</div>
+                </div>
+                <div className="text-right text-xs text-gray-600">
+                  <div>Tăng kho: +{item.impactSummary.stockIncreaseCon} con</div>
+                  <div>Giảm kho: -{item.impactSummary.stockDecreaseCon} con</div>
+                </div>
+              </div>
+              <div className="text-xs text-red-700 mt-2">Lý do: <span className="font-semibold">{item.reason}</span></div>
+              {item.snapshot.invoice && (
+                <div className="text-xs text-gray-600 mt-1">Chi tiết: {item.snapshot.invoice.lines.map(line => `${line.productName} (${line.gender === 'FEMALE' ? 'Mái' : 'Trống'})`).join(' • ')}</div>
+              )}
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       {/* Transaction Details Modal */}
       <Modal isOpen={!!selectedTxn} onClose={handleCloseTxnModal} title="Chi Tiết Giao Dịch">
@@ -1484,6 +1582,15 @@ function CashbookPage() {
                         <div className="text-xs text-gray-400 mt-1">{new Date(selectedTxn.date).toLocaleString('vi-VN')}</div>
                     </div>
                     <div className="text-sm text-gray-800 font-medium">{selectedTxn.description}</div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={handleDeleteSelectedTransaction}
+                        className="text-xs font-bold text-red-700 underline"
+                      >
+                        Xoá giao dịch
+                      </button>
+                    </div>
                     {selectedInvoice && selectedInvoice.type !== 'IMPORT' && (
                       <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 text-sm">
                         <span className="text-gray-500">Phương thức thanh toán:</span>{' '}
