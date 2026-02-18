@@ -43,17 +43,6 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
   const aiMessagesRef = useRef<HTMLDivElement | null>(null);
 
   const customerOptions = db.getPartners(PartnerType.CUSTOMER);
-  const normalizeValue = (value: string) => (value || '').trim().toLowerCase();
-  const filteredQuickCustomerOptions = quickCustomerOptions.filter(q => {
-    const quickName = normalizeValue(q.name || '');
-    const quickPhone = normalizeValue(q.phone || '');
-    return !customerOptions.some(c => {
-      const customerName = normalizeValue(c.name || '');
-      const customerPhone = normalizeValue(c.phone || '');
-      if (quickPhone && customerPhone && quickPhone === customerPhone) return true;
-      return quickName === customerName && quickPhone === customerPhone;
-    });
-  });
   const productOptions = db.getProducts();
   const manualGoodsOptions = Array.from(new Set([
     ...db.getInvoices()
@@ -251,9 +240,31 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
     db.saveQuickItem(value);
   };
 
-  const handleDeleteQuickCustomer = (name: string, phone?: string) => {
-    db.deleteQuickCustomer(name, phone);
+  const handleAutoFillPhoneByName = (customerName: string) => {
+    const name = (customerName || '').trim().toLowerCase();
+    if (!name) return;
+
+    const foundPartner = customerOptions.find(c => (c.name || '').trim().toLowerCase() === name);
+    if (foundPartner && foundPartner.phone) {
+      setPoPhone(foundPartner.phone);
+      return;
+    }
+
+    const foundQuick = quickCustomerOptions.find(c => (c.name || '').trim().toLowerCase() === name);
+    if (foundQuick && foundQuick.phone) {
+      setPoPhone(foundQuick.phone);
+    }
+  };
+
+  const handleSaveCurrentCustomerQuick = () => {
+    if (!poName.trim()) return alert('Vui lòng nhập tên khách hàng trước khi thêm.');
+    db.saveQuickCustomer(poName.trim(), poPhone.trim());
     setQuickCustomerOptions(db.getQuickCustomers());
+  };
+
+  const handleSaveCurrentProductQuick = () => {
+    if (!poProduct.trim()) return alert('Vui lòng nhập tên hàng hoá trước khi thêm.');
+    db.saveQuickItem(poProduct.trim());
   };
 
   const handleDeliverSuccess = async () => {
@@ -485,6 +496,14 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
   };
   const draftTotal = (Number(poKg) > 0 ? Number(poKg) : Number(poCon)) * ((Number(poPrice) || 0) * 1000);
   const deliveryQrLink = getDeliveryQrLink();
+  const customerSuggestions = Array.from(new Set([
+    ...customerOptions.map(c => (c.name || '').trim()).filter(Boolean),
+    ...quickCustomerOptions.map(c => (c.name || '').trim()).filter(Boolean)
+  ]));
+  const productSuggestions = Array.from(new Set([
+    ...productOptions.map(p => (p.name || '').trim()).filter(Boolean),
+    ...manualGoodsOptions.map(name => (name || '').trim()).filter(Boolean)
+  ]));
 
   return (
     <div className="space-y-4 pb-20">
@@ -635,49 +654,65 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
 
       <Modal isOpen={isOrderModalOpen} onClose={() => setIsOrderModalOpen(false)} title={selectedOrder ? 'Chi tiết đặt hàng' : 'Thêm đơn đặt hàng'}>
         <div className="space-y-4">
-          <Select
-            label="Chọn nhanh khách đã lưu"
-            value=""
-            onChange={(e: any) => handleSelectSuggestedCustomer(e.target.value)}
-            options={[
-              { value: '', label: '-- Chọn khách hàng --' },
-              ...customerOptions.map(c => ({ value: `partner:${c.id}`, label: `${c.name}${c.phone ? ` - ${c.phone}` : ''}` })),
-              ...filteredQuickCustomerOptions.map(c => ({ value: `quick:${encodeURIComponent(c.name)}::${encodeURIComponent(c.phone || '')}`, label: `${c.name}${c.phone ? ` - ${c.phone}` : ''} (nhập tay)` }))
-            ]}
-          />
-          {filteredQuickCustomerOptions.length > 0 && (
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-2 -mt-2">
-              <div className="text-[11px] text-gray-500 font-bold uppercase mb-2">Xoá nhanh khách nhập tay</div>
-              <div className="flex flex-wrap gap-2">
-                {filteredQuickCustomerOptions.map((c, idx) => (
-                  <button
-                    key={`${c.name}-${c.phone || ''}-${idx}`}
-                    type="button"
-                    onClick={() => handleDeleteQuickCustomer(c.name, c.phone)}
-                    className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-white border border-gray-200 text-gray-700 hover:bg-red-50 hover:border-red-200 hover:text-red-600"
-                  >
-                    <span>{c.name}{c.phone ? ` - ${c.phone}` : ''}</span>
-                    <span>✕</span>
-                  </button>
-                ))}
-              </div>
+          <div>
+            <label className="text-sm font-bold text-gray-700 mb-1 block">Tên khách hàng</label>
+            <div className="flex gap-2">
+              <input
+                list="customer-suggestion-list"
+                value={poName}
+                onChange={(e: any) => {
+                  setPoName(e.target.value);
+                  handleAutoFillPhoneByName(e.target.value);
+                }}
+                placeholder="Nhập hoặc chọn khách đã lưu"
+                className="flex-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+              />
+              <button
+                type="button"
+                onClick={handleSaveCurrentCustomerQuick}
+                className="px-3 py-2 rounded-lg border border-brand-600 bg-brand-600 text-white font-bold"
+                title="Thêm nhanh khách hàng"
+              >
+                +
+              </button>
             </div>
-          )}
-          <Input label="Tên khách hàng" value={poName} onChange={(e: any) => setPoName(e.target.value)} />
+            <datalist id="customer-suggestion-list">
+              {customerSuggestions.map((name, idx) => (
+                <option key={`${name}-${idx}`} value={name} />
+              ))}
+            </datalist>
+          </div>
           <Input label="Số điện thoại" value={poPhone} onChange={(e: any) => setPoPhone(e.target.value)} type="tel" />
           <Input label="Thời gian giao" type="datetime-local" value={poTime} onChange={(e: any) => setPoTime(e.target.value)} />
           <div className="border-t border-gray-200 pt-2">
-            <Select
-              label="Chọn nhanh loại gà / hàng"
-              value=""
-              onChange={(e: any) => handleSelectSuggestedProduct(e.target.value)}
-              options={[
-                { value: '', label: '-- Chọn mặt hàng --' },
-                ...productOptions.map(p => ({ value: p.id, label: p.name })),
-                ...manualGoodsOptions.map(name => ({ value: name, label: `${name} (đã dùng)` }))
-              ]}
-            />
-            <Input label="Loại gà / Hàng hoá" value={poProduct} onChange={(e: any) => setPoProduct(e.target.value)} />
+            <div>
+              <label className="text-sm font-bold text-gray-700 mb-1 block">Loại gà / Hàng hoá</label>
+              <div className="flex gap-2">
+                <input
+                  list="product-suggestion-list"
+                  value={poProduct}
+                  onChange={(e: any) => {
+                    setPoProduct(e.target.value);
+                    handleSelectSuggestedProduct(e.target.value);
+                  }}
+                  placeholder="Nhập hoặc chọn hàng đã lưu"
+                  className="flex-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
+                <button
+                  type="button"
+                  onClick={handleSaveCurrentProductQuick}
+                  className="px-3 py-2 rounded-lg border border-brand-600 bg-brand-600 text-white font-bold"
+                  title="Thêm nhanh hàng hoá"
+                >
+                  +
+                </button>
+              </div>
+              <datalist id="product-suggestion-list">
+                {productSuggestions.map((name, idx) => (
+                  <option key={`${name}-${idx}`} value={name} />
+                ))}
+              </datalist>
+            </div>
             <div className="flex gap-2 mt-2">
               <div className="flex-1"><Input label="Số con" type="number" value={poCon} onChange={(e: any) => setPoCon(e.target.value)} /></div>
               <div className="flex-1"><Input label="Số Kg" type="number" value={poKg} onChange={(e: any) => setPoKg(e.target.value)} /></div>
