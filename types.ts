@@ -115,6 +115,17 @@ export interface DeletedTransactionHistory {
     partnerDebtDelta: number;
     cashDelta: number;
   };
+  stockImpactDetails?: Array<{
+    productId: string;
+    productName: string;
+    gender: Gender;
+    deltaCon: number;
+    deltaKg: number;
+    beforeCon: number;
+    afterCon: number;
+    beforeKg: number;
+    afterKg: number;
+  }>;
 }
 
 export interface InvoiceLine {

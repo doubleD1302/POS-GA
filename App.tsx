@@ -1365,12 +1365,18 @@ function CashbookPage() {
     try {
       const preview = db.getDeleteTransactionImpact({ invoiceId, cashTransactionId });
       const s = preview.impactSummary;
+      const detailLines = (preview.stockImpactDetails || []).map((item: any) => {
+        const signCon = item.deltaCon > 0 ? '+' : '';
+        const signKg = item.deltaKg > 0 ? '+' : '';
+        return `  • ${item.productName} (${item.gender === 'FEMALE' ? 'Mái' : 'Trống'}): ${signCon}${item.deltaCon} con, ${signKg}${item.deltaKg.toFixed(1)}kg | Tồn: ${item.beforeCon}→${item.afterCon} con`;
+      });
       const warning = [
         '⚠ XÓA GIAO DỊCH SẼ LÀM THAY ĐỔI DỮ LIỆU:',
         `- Tồn kho tăng: +${s.stockIncreaseCon} con (${s.stockIncreaseKg.toFixed(1)}kg)`,
         `- Tồn kho giảm: -${s.stockDecreaseCon} con (${s.stockDecreaseKg.toFixed(1)}kg)`,
         `- Công nợ thay đổi: ${formatCurrency(s.partnerDebtDelta)}`,
         `- Tiền quỹ thay đổi: ${formatCurrency(s.cashDelta)}`,
+        ...(detailLines.length > 0 ? ['', 'Chi tiết loại gà thay đổi:', ...detailLines] : []),
         '',
         'Bạn có chắc chắn muốn xoá?'
       ].join('\n');
@@ -1560,6 +1566,15 @@ function CashbookPage() {
               <div className="text-xs text-red-700 mt-2">Lý do: <span className="font-semibold">{item.reason}</span></div>
               {item.snapshot.invoice && (
                 <div className="text-xs text-gray-600 mt-1">Chi tiết: {item.snapshot.invoice.lines.map(line => `${line.productName} (${line.gender === 'FEMALE' ? 'Mái' : 'Trống'})`).join(' • ')}</div>
+              )}
+              {(item.stockImpactDetails || []).length > 0 && (
+                <div className="mt-2 space-y-1">
+                  {(item.stockImpactDetails || []).map((d, idx) => (
+                    <div key={`${item.id}-impact-${idx}`} className="text-[11px] text-gray-600">
+                      {d.productName} ({d.gender === 'FEMALE' ? 'Mái' : 'Trống'}): {d.deltaCon > 0 ? '+' : ''}{d.deltaCon} con, {d.deltaKg > 0 ? '+' : ''}{d.deltaKg.toFixed(1)}kg · tồn {d.beforeCon} → {d.afterCon} con
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
           ))}

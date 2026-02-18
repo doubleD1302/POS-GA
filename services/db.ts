@@ -1060,27 +1060,92 @@ class Database {
     const invoices = this.getInvoices();
     const cashTxns = this.getCashTransactions();
 
-    if (invoiceId) {
-      const invoice = invoices.find(inv => inv.id === invoiceId);
-      if (!invoice) throw new Error('Không tìm thấy hoá đơn để xoá.');
+    const buildStockMap = (batches: Batch[]) => {
+      const map = new Map<string, {
+        productId: string;
+        productName: string;
+        gender: Gender;
+        qtyCon: number;
+        qtyKg: number;
+      }>();
 
+      batches
+        .filter(batch => batch.status === 'OPEN' || batch.qtyRemCon > 0 || batch.qtyRemKg > 0)
+        .forEach(batch => {
+          const product = this.getProducts().find(p => p.id === batch.productId);
+          const key = `${batch.productId}__${batch.gender || 'MALE'}`;
+          const current = map.get(key) || {
+            productId: batch.productId,
+            productName: product?.name || 'Không rõ sản phẩm',
+            gender: (batch.gender || 'MALE') as Gender,
+            qtyCon: 0,
+            qtyKg: 0,
+          };
+          current.qtyCon += Number(batch.qtyRemCon) || 0;
+          current.qtyKg += Number(batch.qtyRemKg) || 0;
+          map.set(key, current);
+        });
+
+      return map;
+    };
+
+    const buildDetailDiff = (beforeMap: Map<string, any>, afterMap: Map<string, any>) => {
+      const keys = new Set<string>([...beforeMap.keys(), ...afterMap.keys()]);
+      const details = Array.from(keys).map((key) => {
+        const before = beforeMap.get(key) || { productId: key.split('__')[0], productName: 'Không rõ sản phẩm', gender: key.split('__')[1] as Gender, qtyCon: 0, qtyKg: 0 };
+        const after = afterMap.get(key) || { ...before, qtyCon: 0, qtyKg: 0 };
+        const deltaCon = (Number(after.qtyCon) || 0) - (Number(before.qtyCon) || 0);
+        const deltaKg = (Number(after.qtyKg) || 0) - (Number(before.qtyKg) || 0);
+        return {
+          productId: before.productId,
+          productName: before.productName,
+          gender: before.gender,
+          deltaCon,
+          deltaKg,
+          beforeCon: Number(before.qtyCon) || 0,
+          afterCon: Number(after.qtyCon) || 0,
+          beforeKg: Number(before.qtyKg) || 0,
+          afterKg: Number(after.qtyKg) || 0,
+        };
+      }).filter(item => Math.abs(item.deltaCon) > 0 || Math.abs(item.deltaKg) > 0)
+        .sort((a, b) => Math.abs(b.deltaCon) - Math.abs(a.deltaCon));
+
+      return details;
+    };
+
+    const summarizeDetails = (details: Array<{ deltaCon: number; deltaKg: number }>) => {
       let stockIncreaseCon = 0;
       let stockDecreaseCon = 0;
       let stockIncreaseKg = 0;
       let stockDecreaseKg = 0;
 
-      (invoice.lines || []).forEach((line) => {
-        if (line.productId === 'MANUAL') return;
-        const qtyCon = Number(line.qtyCon) || 0;
-        const qtyKg = Number(line.qtyKg) || 0;
-        if (invoice.type === 'EXPORT') {
-          stockIncreaseCon += qtyCon;
-          stockIncreaseKg += qtyKg;
-        } else {
-          stockDecreaseCon += qtyCon;
-          stockDecreaseKg += qtyKg;
-        }
+      details.forEach(item => {
+        if (item.deltaCon > 0) stockIncreaseCon += item.deltaCon;
+        else if (item.deltaCon < 0) stockDecreaseCon += Math.abs(item.deltaCon);
+
+        if (item.deltaKg > 0) stockIncreaseKg += item.deltaKg;
+        else if (item.deltaKg < 0) stockDecreaseKg += Math.abs(item.deltaKg);
       });
+
+      return { stockIncreaseCon, stockDecreaseCon, stockIncreaseKg, stockDecreaseKg };
+    };
+
+    if (invoiceId) {
+      const invoice = invoices.find(inv => inv.id === invoiceId);
+      if (!invoice) throw new Error('Không tìm thấy hoá đơn để xoá.');
+
+      const currentRawBatches = this.load<Batch[]>(BASE_KEYS.BATCHES, []);
+      const currentMap = buildStockMap(currentRawBatches);
+
+      const nextInvoices = invoices.filter(inv => inv.id !== invoice.id);
+      let sourceBatches = [...currentRawBatches];
+      if (invoice.type === 'IMPORT') {
+        sourceBatches = sourceBatches.filter(batch => !(batch.code || '').startsWith(`${invoice.code}-B`));
+      }
+      const recalculated = this.rebuildBatchesAndExportCogs(nextInvoices, sourceBatches);
+      const afterMap = buildStockMap(recalculated.batches);
+      const stockImpactDetails = buildDetailDiff(currentMap, afterMap);
+      const stockSummary = summarizeDetails(stockImpactDetails);
 
       const linkedCash = cashTxns.filter(txn => txn.refId === invoiceId);
       const cashDelta = linkedCash.reduce((sum, txn) => {
@@ -1095,11 +1160,12 @@ class Database {
         targetType: 'INVOICE' as const,
         invoice,
         linkedCash,
+        stockImpactDetails,
         impactSummary: {
-          stockIncreaseCon,
-          stockDecreaseCon,
-          stockIncreaseKg,
-          stockDecreaseKg,
+          stockIncreaseCon: stockSummary.stockIncreaseCon,
+          stockDecreaseCon: stockSummary.stockDecreaseCon,
+          stockIncreaseKg: stockSummary.stockIncreaseKg,
+          stockDecreaseKg: stockSummary.stockDecreaseKg,
           partnerDebtDelta,
           cashDelta,
         }
@@ -1113,6 +1179,7 @@ class Database {
       return {
         targetType: 'CASH_TXN' as const,
         cashTransaction: txn,
+        stockImpactDetails: [],
         impactSummary: {
           stockIncreaseCon: 0,
           stockDecreaseCon: 0,
@@ -1167,6 +1234,7 @@ class Database {
         invoiceCode: invoice.code,
         snapshot: { invoice: { ...invoice } },
         impactSummary: preview.impactSummary,
+        stockImpactDetails: preview.stockImpactDetails,
       };
 
       this.save(BASE_KEYS.BATCHES, recalculated.batches);
@@ -1191,6 +1259,7 @@ class Database {
       cashTransactionId: txn.id,
       snapshot: { cashTransaction: { ...txn } },
       impactSummary: preview.impactSummary,
+      stockImpactDetails: preview.stockImpactDetails,
     };
 
     this.save(BASE_KEYS.CASH, cashTxns);
