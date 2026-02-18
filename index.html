@@ -29,24 +29,17 @@
         --surface-elevated: #ffffff;
         --surface-border: #d8e1ec;
         --surface-border-strong: #c7d3e2;
-        --app-bg-image: url('https://i.postimg.cc/wxwPXkb6/Gemini-Generated-Image-lozj9zlozj9zlozj.png');
       }
 
       /* Mobile optimization */
       body {
         -webkit-tap-highlight-color: transparent;
-        background-color: #0f172a;
-        background-image: linear-gradient(rgba(15, 23, 42, 0.55), rgba(15, 23, 42, 0.55)), var(--app-bg-image);
-        background-size: cover;
-        background-position: center;
-        background-repeat: no-repeat;
-        background-attachment: fixed;
+        background-color: var(--surface-page);
         color: #1e293b;
       }
 
       .surface-page {
-        background-color: rgba(233, 238, 245, 0.86);
-        backdrop-filter: blur(2px);
+        background-color: var(--surface-page);
       }
 
       .surface-card {
