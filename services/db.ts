@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { Batch, BankSettings, CashTransaction, DashboardStats, Invoice, InvoiceLine, Partner, PartnerType, PaymentMethod, Product, TransactionType, Unit, PreOrder, Gender } from '../types';
+import { Batch, BankSettings, CashTransaction, DashboardStats, Invoice, InvoiceLine, Partner, PartnerType, PaymentMethod, Product, TransactionType, Unit, PreOrder, Gender, StockMovement } from '../types';
 
 // --- CẤU HÌNH SUPABASE ---
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -34,6 +34,7 @@ const BASE_KEYS = {
   QUICK_CUSTOMERS: 'quick_customers',
   QUICK_ITEMS: 'quick_items',
   START_DATE: 'start_date',
+  STOCK_MOVEMENTS: 'stock_movements',
 };
 
 const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
@@ -221,6 +222,12 @@ class Database {
     return productId ? sorted.filter(b => b.productId === productId && b.status === 'OPEN') : sorted;
   }
 
+  getStockMovements(limit?: number): StockMovement[] {
+    const movements = this.load<StockMovement[]>(BASE_KEYS.STOCK_MOVEMENTS, [])
+      .sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime());
+    return limit ? movements.slice(0, limit) : movements;
+  }
+
   getInvoices(): Invoice[] {
     return this.load<Invoice[]>(BASE_KEYS.INVOICES, []).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }
@@ -251,6 +258,12 @@ class Database {
 
   getQuickItems(): string[] {
     return this.load<string[]>(BASE_KEYS.QUICK_ITEMS, []);
+  }
+
+  private appendStockMovements(entries: StockMovement[]) {
+    if (!entries || entries.length === 0) return;
+    const history = this.load<StockMovement[]>(BASE_KEYS.STOCK_MOVEMENTS, []);
+    this.save(BASE_KEYS.STOCK_MOVEMENTS, [...entries, ...history].slice(0, 2000));
   }
 
   // --- WRITE FUNCTIONS ---
@@ -352,13 +365,39 @@ class Database {
     const batches = this.getBatches();
     const index = batches.findIndex(b => b.id === id);
     if (index >= 0) {
-      batches[index] = { ...batches[index], ...updates };
-      if (batches[index].qtyRemKg <= 0.1 && batches[index].qtyRemCon <= 0) {
-        batches[index].status = 'CLOSED';
+      const previousBatch = { ...batches[index] };
+      const updatedBatch = { ...batches[index], ...updates };
+      if (updatedBatch.qtyRemKg <= 0.1 && updatedBatch.qtyRemCon <= 0) {
+        updatedBatch.status = 'CLOSED';
       } else {
-        batches[index].status = 'OPEN';
+        updatedBatch.status = 'OPEN';
       }
+
+      batches[index] = updatedBatch;
       this.save(BASE_KEYS.BATCHES, batches);
+
+      const deltaKg = (Number(updatedBatch.qtyRemKg) || 0) - (Number(previousBatch.qtyRemKg) || 0);
+      const deltaCon = (Number(updatedBatch.qtyRemCon) || 0) - (Number(previousBatch.qtyRemCon) || 0);
+      if (Math.abs(deltaKg) > 0.0001 || Math.abs(deltaCon) > 0.0001) {
+        const products = this.getProducts();
+        const product = products.find(p => p.id === updatedBatch.productId);
+        this.appendStockMovements([
+          {
+            id: `stk-${Date.now()}-${updatedBatch.id}`,
+            occurredAt: new Date().toISOString(),
+            productId: updatedBatch.productId,
+            productName: product?.name || 'Không rõ sản phẩm',
+            gender: updatedBatch.gender,
+            batchId: updatedBatch.id,
+            source: 'MANUAL_EDIT',
+            deltaKg,
+            deltaCon,
+            afterKg: updatedBatch.qtyRemKg,
+            afterCon: updatedBatch.qtyRemCon,
+            note: 'Sửa tồn kho thủ công',
+          }
+        ]);
+      }
     }
   }
 
@@ -424,6 +463,23 @@ class Database {
         status: 'OPEN'
       };
     });
+    const stockMovements: StockMovement[] = newBatches.map((batch) => {
+      const product = products.find(p => p.id === batch.productId);
+      return {
+        id: `stk-${Date.now()}-${batch.id}`,
+        occurredAt: new Date().toISOString(),
+        productId: batch.productId,
+        productName: product?.name || 'Không rõ sản phẩm',
+        gender: batch.gender,
+        batchId: batch.id,
+        source: 'IMPORT',
+        deltaKg: batch.qtyInKg,
+        deltaCon: batch.qtyInCon,
+        afterKg: batch.qtyRemKg,
+        afterCon: batch.qtyRemCon,
+        note: `Nhập hàng ${supplier.name}`,
+      };
+    });
 
     this.save(BASE_KEYS.PRODUCTS, products);
     const totalAmount = totalGoods + extraCost;
@@ -435,6 +491,7 @@ class Database {
     };
 
     this.save(BASE_KEYS.BATCHES, [...batches, ...newBatches]);
+    this.appendStockMovements(stockMovements);
     this.save(BASE_KEYS.INVOICES, [invoice, ...invoices]);
     
     const txn: CashTransaction = {
@@ -484,10 +541,28 @@ class Database {
         status: 'OPEN'
       };
     });
+    const stockMovements: StockMovement[] = newBatches.map((batch) => {
+      const product = products.find(p => p.id === batch.productId);
+      return {
+        id: `stk-${Date.now()}-${batch.id}`,
+        occurredAt: new Date().toISOString(),
+        productId: batch.productId,
+        productName: product?.name || 'Không rõ sản phẩm',
+        gender: batch.gender,
+        batchId: batch.id,
+        source: 'ADJUSTMENT',
+        deltaKg: batch.qtyInKg,
+        deltaCon: batch.qtyInCon,
+        afterKg: batch.qtyRemKg,
+        afterCon: batch.qtyRemCon,
+        note: 'Tạo tồn kho/kiểm kho ban đầu',
+      };
+    });
 
     // Chỉ lưu Batch và Update giá sản phẩm
     this.save(BASE_KEYS.PRODUCTS, products);
     this.save(BASE_KEYS.BATCHES, [...batches, ...newBatches]);
+    this.appendStockMovements(stockMovements);
 
     await delay(300);
     return true;
@@ -507,6 +582,7 @@ class Database {
     let totalAmount = 0;
     let totalCOGS = 0;
     const invoiceLines: InvoiceLine[] = [];
+    const stockMovements: StockMovement[] = [];
 
     for (const line of lines) {
       const lineAmount = (line.unit === Unit.KG ? line.qtyKg : line.qtyCon) * line.price;
@@ -545,6 +621,21 @@ class Database {
           batch.qtyRemKg -= takeKg; batch.qtyRemCon -= takeCon;
           remainingKgToDeduct -= takeKg; remainingConToDeduct -= takeCon;
           if (batch.qtyRemKg <= 0.1 && batch.qtyRemCon <= 0) batch.status = 'CLOSED';
+
+          stockMovements.push({
+            id: `stk-${Date.now()}-${batch.id}-${stockMovements.length}`,
+            occurredAt: new Date().toISOString(),
+            productId: line.productId,
+            productName: prod.name,
+            gender: targetGender,
+            batchId: batch.id,
+            source: 'SALE',
+            deltaKg: -takeKg,
+            deltaCon: -takeCon,
+            afterKg: batch.qtyRemKg,
+            afterCon: batch.qtyRemCon,
+            note: `Xuất bán ${customer.name} (${code})`,
+          });
         }
       }
     }
@@ -558,6 +649,7 @@ class Database {
     };
 
     this.save(BASE_KEYS.BATCHES, batches);
+    this.appendStockMovements(stockMovements);
     this.save(BASE_KEYS.INVOICES, [invoice, ...invoices]);
 
     if (paidAmount > 0) {
@@ -825,6 +917,8 @@ class Database {
   // --- HÀM MỚI: TẠO ĐIỀU CHỈNH KHO NHANH ---
   async createDirectAdjustment(productId: string, gender: string, qtyKg: number, qtyCon: number) {
     const batches = this.getBatches();
+    const products = this.getProducts();
+    const product = products.find(p => p.id === productId);
     
     const newBatch: Batch = {
       id: `adj-quick-${Date.now()}`,
@@ -848,6 +942,22 @@ class Database {
 
     // Lưu lô mới vào danh sách
     this.save(BASE_KEYS.BATCHES, [...batches, newBatch]);
+    this.appendStockMovements([
+      {
+        id: `stk-${Date.now()}-${newBatch.id}`,
+        occurredAt: new Date().toISOString(),
+        productId,
+        productName: product?.name || 'Không rõ sản phẩm',
+        gender: newBatch.gender,
+        batchId: newBatch.id,
+        source: 'ADJUSTMENT',
+        deltaKg: qtyKg,
+        deltaCon: qtyCon,
+        afterKg: newBatch.qtyRemKg,
+        afterCon: newBatch.qtyRemCon,
+        note: 'Điều chỉnh kho nhanh',
+      }
+    ]);
     await delay(200);
     return true;
   }

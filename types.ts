@@ -78,6 +78,21 @@ export interface Batch {
   status: 'OPEN' | 'CLOSED';
 }
 
+export interface StockMovement {
+  id: string;
+  occurredAt: string;
+  productId: string;
+  productName: string;
+  gender: Gender;
+  batchId?: string;
+  source: 'IMPORT' | 'SALE' | 'ADJUSTMENT' | 'MANUAL_EDIT';
+  deltaKg: number;
+  deltaCon: number;
+  afterKg?: number;
+  afterCon?: number;
+  note?: string;
+}
+
 export interface InvoiceLine {
   productId: string;
   productName: string;
