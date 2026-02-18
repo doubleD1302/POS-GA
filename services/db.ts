@@ -312,9 +312,11 @@ class Database {
   }
 
   getBatches(productId?: string): Batch[] {
-    const batches = this.load<Batch[]>(BASE_KEYS.BATCHES, []);
-    const sorted = batches.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-    return productId ? sorted.filter(b => b.productId === productId && b.status === 'OPEN') : sorted;
+    const invoices = this.getInvoices();
+    const rawBatches = this.load<Batch[]>(BASE_KEYS.BATCHES, []);
+    const recalculated = this.rebuildBatchesAndExportCogs(invoices, rawBatches);
+    const sorted = recalculated.batches.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    return productId ? sorted.filter(b => b.productId === productId) : sorted;
   }
 
   private toMovementDate(isoDate: string, fallbackHour: string = '12:00:00') {
@@ -322,15 +324,50 @@ class Database {
   }
 
   private rebuildBatchesAndExportCogs(invoices: Invoice[], sourceBatches: Batch[]) {
-    const clonedBatches = sourceBatches.map(batch => {
-      const qtyRemCon = Number(batch.qtyInCon) || 0;
-      const qtyRemKg = Number(batch.qtyInKg) || 0;
-      return {
-        ...batch,
-        qtyRemCon,
-        qtyRemKg,
-        status: (qtyRemKg <= 0.1 && qtyRemCon <= 0) ? 'CLOSED' as const : 'OPEN' as const,
+    const groupedByType = new Map<string, Batch>();
+
+    sourceBatches.forEach((batch) => {
+      const gender = (batch.gender || 'MALE') as Gender;
+      const key = `${batch.productId}__${gender}`;
+      const qtyInCon = Number(batch.qtyInCon) || 0;
+      const qtyInKg = Number(batch.qtyInKg) || 0;
+      const totalCost = Number(batch.totalCost) || 0;
+
+      const current = groupedByType.get(key) || {
+        id: `stock-${batch.productId}-${gender}`,
+        code: `STOCK-${batch.productId}-${gender}`,
+        productId: batch.productId,
+        gender,
+        supplierId: 'AGGREGATED',
+        supplierName: 'Tồn kho gộp',
+        date: batch.date,
+        qtyInCon: 0,
+        qtyInKg: 0,
+        qtyRemCon: 0,
+        qtyRemKg: 0,
+        baseCost: 0,
+        extraCost: 0,
+        totalCost: 0,
+        costPerKg: 0,
+        costPerCon: 0,
+        status: 'OPEN' as const,
       };
+
+      current.qtyInCon += qtyInCon;
+      current.qtyInKg += qtyInKg;
+      current.qtyRemCon += qtyInCon;
+      current.qtyRemKg += qtyInKg;
+      current.totalCost += totalCost;
+
+      if (!current.date || new Date(batch.date).getTime() > new Date(current.date).getTime()) {
+        current.date = batch.date;
+      }
+
+      current.costPerKg = current.qtyInKg > 0 ? current.totalCost / current.qtyInKg : 0;
+      current.costPerCon = current.qtyInCon > 0 ? current.totalCost / current.qtyInCon : 0;
+      current.status = (current.qtyRemKg <= 0.1 && current.qtyRemCon <= 0) ? 'CLOSED' : 'OPEN';
+
+      groupedByType.set(key, current);
     });
 
     const sortedExportInvoices = invoices
@@ -347,46 +384,63 @@ class Database {
     sortedExportInvoices.forEach((invoice) => {
       let invoiceCogs = 0;
       const saleLines = (invoice.lines || []).filter(line => line.productId !== 'MANUAL');
+      const products = this.getProducts();
 
       saleLines.forEach((line, lineIdx) => {
         const targetGender = line.gender || 'MALE';
         let remainingKg = Number(line.qtyKg) || 0;
         let remainingCon = Number(line.qtyCon) || 0;
 
-        const matchedBatches = clonedBatches
-          .filter(batch => batch.productId === line.productId && batch.gender === targetGender && batch.status === 'OPEN')
-          .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        const key = `${line.productId}__${targetGender}`;
+        const bucket = groupedByType.get(key);
 
-        for (const batch of matchedBatches) {
-          if (remainingKg <= 0 && remainingCon <= 0) break;
+        if (!bucket) {
+          const fallbackProduct = products.find(p => p.id === line.productId);
+          const fallbackCost = targetGender === 'MALE'
+            ? (Number(fallbackProduct?.costMale) || 0)
+            : (Number(fallbackProduct?.costFemale) || 0);
+          if (remainingKg > 0 && fallbackCost > 0) {
+            invoiceCogs += remainingKg * fallbackCost;
+          }
+          return;
+        }
 
-          const takeKg = Math.min(batch.qtyRemKg, remainingKg);
-          const takeCon = Math.min(batch.qtyRemCon, remainingCon);
+        const takeKg = Math.min(Number(bucket.qtyRemKg) || 0, remainingKg);
+        const takeCon = Math.min(Number(bucket.qtyRemCon) || 0, remainingCon);
 
-          if (takeKg > 0 || takeCon > 0) {
-            invoiceCogs += takeKg * (Number(batch.costPerKg) || 0);
-            batch.qtyRemKg -= takeKg;
-            batch.qtyRemCon -= takeCon;
-            remainingKg -= takeKg;
-            remainingCon -= takeCon;
-            batch.status = (batch.qtyRemKg <= 0.1 && batch.qtyRemCon <= 0) ? 'CLOSED' : 'OPEN';
+        if (takeKg > 0 || takeCon > 0) {
+          invoiceCogs += takeKg * (Number(bucket.costPerKg) || 0);
+          bucket.qtyRemKg = Math.max(0, (Number(bucket.qtyRemKg) || 0) - takeKg);
+          bucket.qtyRemCon = Math.max(0, (Number(bucket.qtyRemCon) || 0) - takeCon);
+          bucket.status = (bucket.qtyRemKg <= 0.1 && bucket.qtyRemCon <= 0) ? 'CLOSED' : 'OPEN';
+          remainingKg -= takeKg;
+          remainingCon -= takeCon;
 
-            saleMovements.push({
-              id: `stk-sale-${invoice.id}-${lineIdx}-${batch.id}`,
-              occurredAt: this.toMovementDate(invoice.date, '12:00:00'),
-              productId: line.productId,
-              productName: line.productName,
-              gender: targetGender,
-              batchId: batch.id,
-              invoiceId: invoice.id,
-              invoiceCode: invoice.code,
-              source: 'SALE',
-              deltaKg: -takeKg,
-              deltaCon: -takeCon,
-              afterKg: batch.qtyRemKg,
-              afterCon: batch.qtyRemCon,
-              note: `Xuất bán ${invoice.partnerName} (${invoice.code})`,
-            });
+          saleMovements.push({
+            id: `stk-sale-${invoice.id}-${lineIdx}-${bucket.id}`,
+            occurredAt: this.toMovementDate(invoice.date, '12:00:00'),
+            productId: line.productId,
+            productName: line.productName,
+            gender: targetGender,
+            batchId: bucket.id,
+            invoiceId: invoice.id,
+            invoiceCode: invoice.code,
+            source: 'SALE',
+            deltaKg: -takeKg,
+            deltaCon: -takeCon,
+            afterKg: bucket.qtyRemKg,
+            afterCon: bucket.qtyRemCon,
+            note: `Xuất bán ${invoice.partnerName} (${invoice.code})`,
+          });
+        }
+
+        if (remainingKg > 0) {
+          const fallbackProduct = products.find(p => p.id === line.productId);
+          const fallbackCost = targetGender === 'MALE'
+            ? (Number(fallbackProduct?.costMale) || 0)
+            : (Number(fallbackProduct?.costFemale) || 0);
+          if (fallbackCost > 0) {
+            invoiceCogs += remainingKg * fallbackCost;
           }
         }
       });
@@ -394,25 +448,46 @@ class Database {
       cogsByInvoice[invoice.id] = invoiceCogs;
     });
 
-    const manualDeltasByBatch = this.getManualStockMovements().reduce((acc, movement) => {
-      if (!movement.batchId) return acc;
-      if (!acc[movement.batchId]) {
-        acc[movement.batchId] = { deltaCon: 0, deltaKg: 0 };
+    const manualDeltasByType = this.getManualStockMovements().reduce((acc, movement) => {
+      const key = `${movement.productId}__${movement.gender || 'MALE'}`;
+      if (!acc[key]) {
+        acc[key] = { deltaCon: 0, deltaKg: 0 };
       }
-      acc[movement.batchId].deltaCon += Number(movement.deltaCon) || 0;
-      acc[movement.batchId].deltaKg += Number(movement.deltaKg) || 0;
+      acc[key].deltaCon += Number(movement.deltaCon) || 0;
+      acc[key].deltaKg += Number(movement.deltaKg) || 0;
       return acc;
     }, {} as Record<string, { deltaCon: number; deltaKg: number }>);
 
-    clonedBatches.forEach((batch) => {
-      const delta = manualDeltasByBatch[batch.id];
-      if (!delta) return;
-      batch.qtyRemCon = Math.max(0, (Number(batch.qtyRemCon) || 0) + delta.deltaCon);
-      batch.qtyRemKg = Math.max(0, (Number(batch.qtyRemKg) || 0) + delta.deltaKg);
-      batch.status = (batch.qtyRemKg <= 0.1 && batch.qtyRemCon <= 0) ? 'CLOSED' : 'OPEN';
+    Object.entries(manualDeltasByType).forEach(([key, delta]) => {
+      const [productId, genderRaw] = key.split('__');
+      const gender = (genderRaw || 'MALE') as Gender;
+      const current = groupedByType.get(key) || {
+        id: `stock-${productId}-${gender}`,
+        code: `STOCK-${productId}-${gender}`,
+        productId,
+        gender,
+        supplierId: 'AGGREGATED',
+        supplierName: 'Tồn kho gộp',
+        date: new Date().toISOString().split('T')[0],
+        qtyInCon: 0,
+        qtyInKg: 0,
+        qtyRemCon: 0,
+        qtyRemKg: 0,
+        baseCost: 0,
+        extraCost: 0,
+        totalCost: 0,
+        costPerKg: 0,
+        costPerCon: 0,
+        status: 'OPEN' as const,
+      };
+
+      current.qtyRemCon = Math.max(0, (Number(current.qtyRemCon) || 0) + delta.deltaCon);
+      current.qtyRemKg = Math.max(0, (Number(current.qtyRemKg) || 0) + delta.deltaKg);
+      current.status = (current.qtyRemKg <= 0.1 && current.qtyRemCon <= 0) ? 'CLOSED' : 'OPEN';
+      groupedByType.set(key, current);
     });
 
-    return { batches: clonedBatches, cogsByInvoice, saleMovements };
+    return { batches: Array.from(groupedByType.values()), cogsByInvoice, saleMovements };
   }
 
   private buildImportMovements(invoices: Invoice[]): StockMovement[] {
@@ -619,50 +694,40 @@ class Database {
   }
 
   updateBatch(id: string, updates: Partial<Batch>) {
-    const batches = this.getBatches();
-    const index = batches.findIndex(b => b.id === id);
-    if (index >= 0) {
-      const previousBatch = { ...batches[index] };
-      const updatedBatch = { ...batches[index], ...updates };
-      if (updatedBatch.qtyRemKg <= 0.1 && updatedBatch.qtyRemCon <= 0) {
-        updatedBatch.status = 'CLOSED';
-      } else {
-        updatedBatch.status = 'OPEN';
-      }
+    const buckets = this.getBatches();
+    const currentBucket = buckets.find(b => b.id === id);
+    if (!currentBucket) return;
 
-      batches[index] = updatedBatch;
-      this.save(BASE_KEYS.BATCHES, batches);
+    const nextKg = updates.qtyRemKg !== undefined ? Number(updates.qtyRemKg) || 0 : (Number(currentBucket.qtyRemKg) || 0);
+    const nextCon = updates.qtyRemCon !== undefined ? Number(updates.qtyRemCon) || 0 : (Number(currentBucket.qtyRemCon) || 0);
 
-      const deltaKg = (Number(updatedBatch.qtyRemKg) || 0) - (Number(previousBatch.qtyRemKg) || 0);
-      const deltaCon = (Number(updatedBatch.qtyRemCon) || 0) - (Number(previousBatch.qtyRemCon) || 0);
-      if (Math.abs(deltaKg) > 0.0001 || Math.abs(deltaCon) > 0.0001) {
-        const products = this.getProducts();
-        const product = products.find(p => p.id === updatedBatch.productId);
-        this.appendStockMovements([
-          {
-            id: `stk-${Date.now()}-${updatedBatch.id}`,
-            occurredAt: new Date().toISOString(),
-            productId: updatedBatch.productId,
-            productName: product?.name || 'Không rõ sản phẩm',
-            gender: updatedBatch.gender,
-            batchId: updatedBatch.id,
-            source: 'MANUAL_EDIT',
-            deltaKg,
-            deltaCon,
-            afterKg: updatedBatch.qtyRemKg,
-            afterCon: updatedBatch.qtyRemCon,
-            note: 'Sửa tồn kho thủ công',
-          }
-        ]);
+    const deltaKg = nextKg - (Number(currentBucket.qtyRemKg) || 0);
+    const deltaCon = nextCon - (Number(currentBucket.qtyRemCon) || 0);
+    if (Math.abs(deltaKg) <= 0.0001 && Math.abs(deltaCon) <= 0.0001) return;
+
+    const product = this.getProducts().find(p => p.id === currentBucket.productId);
+    this.appendStockMovements([
+      {
+        id: `stk-manual-${Date.now()}-${currentBucket.productId}-${currentBucket.gender}`,
+        occurredAt: new Date().toISOString(),
+        productId: currentBucket.productId,
+        productName: product?.name || 'Không rõ sản phẩm',
+        gender: currentBucket.gender,
+        source: 'MANUAL_EDIT',
+        deltaKg,
+        deltaCon,
+        afterKg: Math.max(0, nextKg),
+        afterCon: Math.max(0, nextCon),
+        note: 'Sửa tồn kho theo loại gà',
       }
-    }
+    ]);
   }
 
   // --- TRANSACTION LOGIC ---
   async createPurchase(supplierId: string, date: string, lines: any[], extraCost: number, paidAmount: number) {
     const products = this.getProducts();
     const partners = this.getPartners();
-    const batches = this.getBatches(); 
+    const batches = this.load<Batch[]>(BASE_KEYS.BATCHES, []);
     const invoices = this.getInvoices();
     const cash = this.getCashTransactions();
 
@@ -763,62 +828,30 @@ class Database {
 
   async createStockAdjustment(date: string, lines: any[]) {
     const products = this.getProducts();
-    const batches = this.getBatches();
-    
-    // Tạo mã lô hàng đặc biệt
-    const code = `ADJ-${date.replace(/-/g, '')}-${Date.now().toString().slice(-4)}`;
+    const stockMovements: StockMovement[] = lines.map((line: any, idx: number) => {
+      const product = products.find(p => p.id === line.productId);
+      const gender = (line.gender || 'MALE') as Gender;
 
-    const newBatches: Batch[] = lines.map((l, idx) => {
-      const lineTotal = l.qtyKg * l.price;
-      
-      // Cập nhật giá vốn nhập mới nhất cho sản phẩm (để lần sau nhập tiếp gợi ý giá này)
-      const prod = products.find(p => p.id === l.productId);
+      const prod = products.find(p => p.id === line.productId);
       if (prod) {
-        if (l.gender === 'MALE') prod.costMale = l.price;
-        else prod.costFemale = l.price;
+        if (gender === 'MALE') prod.costMale = line.price;
+        else prod.costFemale = line.price;
       }
 
       return {
-        id: `batch-adj-${Date.now()}-${idx}`,
-        code: `${code}-B${idx+1}`,
-        productId: l.productId,
-        gender: l.gender || 'MALE',
-        supplierId: 'INTERNAL',       // Đánh dấu là nội bộ
-        supplierName: 'KHO NỘI BỘ',   // Tên hiển thị
-        date,
-        qtyInCon: l.qtyCon,
-        qtyInKg: l.qtyKg,
-        qtyRemCon: l.qtyCon, // Tồn ban đầu = nhập
-        qtyRemKg: l.qtyKg,
-        baseCost: lineTotal,
-        extraCost: 0,        // Kiểm tồn thường không có phí vận chuyển
-        totalCost: lineTotal,
-        costPerKg: l.qtyKg > 0 ? lineTotal / l.qtyKg : 0,
-        costPerCon: l.qtyCon > 0 ? lineTotal / l.qtyCon : 0,
-        status: 'OPEN'
-      };
-    });
-    const stockMovements: StockMovement[] = newBatches.map((batch) => {
-      const product = products.find(p => p.id === batch.productId);
-      return {
-        id: `stk-${Date.now()}-${batch.id}`,
-        occurredAt: new Date().toISOString(),
-        productId: batch.productId,
+        id: `stk-adjust-${Date.now()}-${idx}`,
+        occurredAt: this.toISODateTime(date, '10:00:00'),
+        productId: line.productId,
         productName: product?.name || 'Không rõ sản phẩm',
-        gender: batch.gender,
-        batchId: batch.id,
-        source: 'ADJUSTMENT',
-        deltaKg: batch.qtyInKg,
-        deltaCon: batch.qtyInCon,
-        afterKg: batch.qtyRemKg,
-        afterCon: batch.qtyRemCon,
+        gender,
+        source: 'MANUAL_EDIT',
+        deltaKg: Number(line.qtyKg) || 0,
+        deltaCon: Number(line.qtyCon) || 0,
         note: 'Tạo tồn kho/kiểm kho ban đầu',
       };
     });
 
-    // Chỉ lưu Batch và Update giá sản phẩm
     this.save(BASE_KEYS.PRODUCTS, products);
-    this.save(BASE_KEYS.BATCHES, [...batches, ...newBatches]);
     this.appendStockMovements(stockMovements);
 
     await delay(300);
@@ -827,7 +860,7 @@ class Database {
 
   async createSale(customerId: string, date: string, lines: any[], paidAmount: number, paymentMethod?: PaymentMethod) {
     const partners = this.getPartners();
-    const batches = this.load<Batch[]>(BASE_KEYS.BATCHES, []);
+    const rawBatches = this.load<Batch[]>(BASE_KEYS.BATCHES, []);
     const invoices = this.getInvoices();
     const cash = this.getCashTransactions();
     const products = this.getProducts();
@@ -837,7 +870,6 @@ class Database {
 
     const code = `OUT-${date.replace(/-/g, '')}-${invoices.filter(i => i.type === 'EXPORT').length + 1}`;
     let totalAmount = 0;
-    let totalCOGS = 0;
     const invoiceLines: InvoiceLine[] = [];
 
     for (const line of lines) {
@@ -851,52 +883,23 @@ class Database {
 
       const prod = products.find(p => p.id === line.productId)!;
       invoiceLines.push({ productId: line.productId, productName: prod.name, qtyCon: line.qtyCon, qtyKg: line.qtyKg, unit: line.unit, price: line.price, amount: lineAmount, gender: line.gender || 'MALE' });
-
-      let remainingKgToDeduct = line.qtyKg;
-      let remainingConToDeduct = line.qtyCon;
-      
-      // Mặc định là MALE nếu không có giới tính
-      const targetGender = line.gender || 'MALE';
-      
-      const productBatches = batches
-        .filter(b => b.productId === line.productId && b.status === 'OPEN' && b.gender === targetGender)
-        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-      if (productBatches.length === 0) {
-         const avgCost = targetGender === 'MALE' ? prod.costMale : prod.costFemale;
-         const estCogs = avgCost ? (line.qtyKg > 0 ? line.qtyKg * avgCost : 0) : 0;
-         totalCOGS += estCogs;
-      }
-
-      for (const batch of productBatches) {
-        if (remainingKgToDeduct <= 0 && remainingConToDeduct <= 0) break;
-        const takeKg = Math.min(batch.qtyRemKg, remainingKgToDeduct);
-        const takeCon = Math.min(batch.qtyRemCon, remainingConToDeduct);
-
-        if (takeKg > 0 || takeCon > 0) {
-          totalCOGS += takeKg * batch.costPerKg;
-          batch.qtyRemKg -= takeKg; batch.qtyRemCon -= takeCon;
-          remainingKgToDeduct -= takeKg; remainingConToDeduct -= takeCon;
-          if (batch.qtyRemKg <= 0.1 && batch.qtyRemCon <= 0) batch.status = 'CLOSED';
-        }
-      }
     }
 
     const debtAmount = totalAmount - paidAmount;
     const finalPaymentMethod = paymentMethod || (debtAmount === totalAmount ? PaymentMethod.DEBT : (paidAmount > 0 ? PaymentMethod.CASH : undefined));
     const invoice: Invoice = {
       id: `inv-${Date.now()}`, code, type: 'EXPORT', date, partnerId: customerId, partnerName: customer.name,
-      totalAmount, paidAmount, debtAmount, lines: invoiceLines, cogs: totalCOGS,
+      totalAmount, paidAmount, debtAmount, lines: invoiceLines, cogs: 0,
       paymentMethod: finalPaymentMethod,
     };
 
     const nextInvoices = [invoice, ...invoices];
-    const recalculated = this.rebuildBatchesAndExportCogs(nextInvoices, batches);
+    const recalculated = this.rebuildBatchesAndExportCogs(nextInvoices, rawBatches);
     const invoicesWithCogs = nextInvoices.map(inv => inv.type === 'EXPORT'
       ? { ...inv, cogs: recalculated.cogsByInvoice[inv.id] || 0 }
       : inv
     );
 
-    this.save(BASE_KEYS.BATCHES, recalculated.batches);
     this.save(BASE_KEYS.INVOICES, invoicesWithCogs);
 
     if (paidAmount > 0) {
@@ -1026,7 +1029,6 @@ class Database {
       : inv
     );
 
-    this.save(BASE_KEYS.BATCHES, recalculated.batches);
     this.save(BASE_KEYS.INVOICES, invoicesWithCogs);
 
     const partners = this.getPartners();
@@ -1153,7 +1155,8 @@ class Database {
       if (!invoice) throw new Error('Không tìm thấy hoá đơn để xoá.');
 
       const currentRawBatches = this.load<Batch[]>(BASE_KEYS.BATCHES, []);
-      const currentMap = buildStockMap(currentRawBatches);
+      const currentRecalculated = this.rebuildBatchesAndExportCogs(invoices, currentRawBatches);
+      const currentMap = buildStockMap(currentRecalculated.batches);
 
       const nextInvoices = invoices.filter(inv => inv.id !== invoice.id);
       let sourceBatches = [...currentRawBatches];
@@ -1255,7 +1258,7 @@ class Database {
         stockImpactDetails: preview.stockImpactDetails,
       };
 
-      this.save(BASE_KEYS.BATCHES, recalculated.batches);
+      this.save(BASE_KEYS.BATCHES, batches);
       this.save(BASE_KEYS.INVOICES, invoicesWithCogs);
       this.save(BASE_KEYS.CASH, cashTxns);
       this.save(BASE_KEYS.PARTNERS, partners);
@@ -1414,46 +1417,20 @@ class Database {
 
   // --- HÀM MỚI: TẠO ĐIỀU CHỈNH KHO NHANH ---
   async createDirectAdjustment(productId: string, gender: string, qtyKg: number, qtyCon: number) {
-    const batches = this.getBatches();
     const products = this.getProducts();
     const product = products.find(p => p.id === productId);
-    
-    const newBatch: Batch = {
-      id: `adj-quick-${Date.now()}`,
-      code: `ADJ-${new Date().toISOString().slice(0,10).replace(/-/g, '')}`,
-      productId: productId,
-      gender: gender as 'MALE' | 'FEMALE',
-      supplierId: 'INTERNAL',       
-      supplierName: 'ĐIỀU CHỈNH KHO', // Tên hiển thị khi sửa nhanh
-      date: new Date().toISOString().split('T')[0],
-      qtyInCon: qtyCon,
-      qtyInKg: qtyKg,
-      qtyRemCon: qtyCon, // Tồn = số vừa nhập
-      qtyRemKg: qtyKg,
-      baseCost: 0,        
-      extraCost: 0,       
-      totalCost: 0,
-      costPerKg: 0,
-      costPerCon: 0,
-      status: 'OPEN'
-    };
 
-    // Lưu lô mới vào danh sách
-    this.save(BASE_KEYS.BATCHES, [...batches, newBatch]);
     this.appendStockMovements([
       {
-        id: `stk-${Date.now()}-${newBatch.id}`,
+        id: `stk-manual-${Date.now()}-${productId}-${gender}`,
         occurredAt: new Date().toISOString(),
         productId,
         productName: product?.name || 'Không rõ sản phẩm',
-        gender: newBatch.gender,
-        batchId: newBatch.id,
-        source: 'ADJUSTMENT',
+        gender: gender as Gender,
+        source: 'MANUAL_EDIT',
         deltaKg: qtyKg,
         deltaCon: qtyCon,
-        afterKg: newBatch.qtyRemKg,
-        afterCon: newBatch.qtyRemCon,
-        note: 'Điều chỉnh kho nhanh',
+        note: 'Điều chỉnh tồn kho theo loại gà',
       }
     ]);
     await delay(200);

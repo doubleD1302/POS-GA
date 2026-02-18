@@ -27,8 +27,6 @@ export default function Inventory() {
   const [editKg, setEditKg] = useState('');
   const [editCon, setEditCon] = useState('');
   const [newAdjustmentInfo, setNewAdjustmentInfo] = useState<{pid: string, gender: string, title: string} | null>(null);
-  const [candidateBatches, setCandidateBatches] = useState<Batch[]>([]);
-  const [selectedBatchId, setSelectedBatchId] = useState('');
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [activeHistoryDate, setActiveHistoryDate] = useState<string>('');
 
@@ -139,16 +137,15 @@ export default function Inventory() {
   };
 
   const handleDeleteProduct = (id: string) => {
-    if (window.confirm("Xóa sản phẩm này sẽ không xóa các lô hàng cũ. Tiếp tục?")) {
+    if (window.confirm("Xóa sản phẩm này sẽ không xóa lịch sử nhập/xuất cũ. Tiếp tục?")) {
       db.deleteProduct(id);
       setTimeout(() => loadData(), 50);
     }
   };
 
-  // --- LOGIC SỬA KHO (BATCH) ---
+  // --- LOGIC SỬA KHO (THEO LOẠI GÀ) ---
   const handleOpenBatchEdit = (batch: Batch) => {
     setEditingBatch(batch);
-    setSelectedBatchId(batch.id);
     setEditKg(batch.qtyRemKg.toString());
     setEditCon(batch.qtyRemCon.toString());
     setIsBatchModalOpen(true);
@@ -175,41 +172,24 @@ export default function Inventory() {
   }
 
   const handleEditStockFromCategory = (pid: string, gender: 'MALE' | 'FEMALE', pName: string) => {
-      const targetBatches = batches
-      .filter(b => b.productId === pid && b.status === 'OPEN' && (b.gender === gender || !b.gender))
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-      
-      if (targetBatches.length === 0) {
-          if(window.confirm(`Chưa có lô hàng nào cho ${pName} (${gender === 'MALE' ? 'Trống' : 'Mái'}). Bạn muốn tạo tồn kho mới?`)) {
-         setNewAdjustmentInfo({ pid, gender, title: `${pName} (${gender === 'MALE' ? 'Trống' : 'Mái'})` });
-         setCandidateBatches([]);
-             setEditingBatch(null);
-             setEditKg('');
-             setEditCon('');
-         setSelectedBatchId('');
-             setIsBatchModalOpen(true);
-          }
-          return;
-      }
+      const targetStock = batches.find(b => b.productId === pid && (b.gender === gender || !b.gender));
 
       setNewAdjustmentInfo({ pid, gender, title: `${pName} (${gender === 'MALE' ? 'Trống' : 'Mái'})` });
-      setCandidateBatches(targetBatches);
-      handleOpenBatchEdit(targetBatches[0]);
-    }
+      if (targetStock) {
+        handleOpenBatchEdit(targetStock);
+        return;
+      }
 
-    const handleBatchChangeInModal = (batchId: string) => {
-    setSelectedBatchId(batchId);
-    const nextBatch = candidateBatches.find(b => b.id === batchId);
-    if (!nextBatch) return;
-    setEditingBatch(nextBatch);
-    setEditKg(nextBatch.qtyRemKg.toString());
-    setEditCon(nextBatch.qtyRemCon.toString());
+      setEditingBatch(null);
+      setEditKg('0');
+      setEditCon('0');
+      setIsBatchModalOpen(true);
   }
 
   const getStock = (pid: string) => {
-      const openBatches = batches.filter(b => b.productId === pid && b.status === 'OPEN');
-      const male = openBatches.filter(b => b.gender === 'MALE' || !b.gender);
-      const female = openBatches.filter(b => b.gender === 'FEMALE');
+      const prodStocks = batches.filter(b => b.productId === pid);
+      const male = prodStocks.filter(b => b.gender === 'MALE' || !b.gender);
+      const female = prodStocks.filter(b => b.gender === 'FEMALE');
 
       return {
           male: { 
@@ -513,36 +493,20 @@ export default function Inventory() {
              <Input label="Giá Bán" type="number" value={priceFemale} onChange={(e: any) => setPriceFemale(e.target.value)} placeholder="VD: 70" />
           </div>
 
-          <p className="text-xs text-gray-500 italic">* Giá nhập này dùng để gợi ý khi nhập hàng. Giá vốn thực tế sẽ tính theo từng lô hàng.</p>
+          <p className="text-xs text-gray-500 italic">* Giá nhập này dùng để gợi ý khi nhập hàng. Giá vốn sẽ được quản lý chung theo loại gà.</p>
           <Button className="w-full" onClick={handleSaveProduct}>Lưu lại</Button>
         </div>
       </Modal>
 
-      {/* MODAL 2: Sửa trực tiếp Batch */}
-      <Modal isOpen={isBatchModalOpen} onClose={() => setIsBatchModalOpen(false)} title="Sửa Tồn Kho (Thực tế)">
+      {/* MODAL 2: Sửa tồn theo loại gà */}
+      <Modal isOpen={isBatchModalOpen} onClose={() => setIsBatchModalOpen(false)} title="Sửa Tồn Kho (Theo Loại Gà)">
          <div className="space-y-4">
             <div className="bg-yellow-50 p-2 rounded text-xs text-yellow-700 border border-yellow-200">
-               Điều chỉnh số lượng thực tế trong kho.
+               Điều chỉnh số lượng thực tế theo loại gà (không tách lô hàng).
             </div>
             {newAdjustmentInfo && (
               <div className="text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded p-2">
                 Đang chỉnh: <span className="font-bold">{newAdjustmentInfo.title}</span>
-              </div>
-            )}
-            {candidateBatches.length > 1 && (
-              <div>
-                <label className="text-sm font-bold text-gray-700 mb-1 block">Lô hàng</label>
-                <select
-                  value={selectedBatchId}
-                  onChange={(e) => handleBatchChangeInModal(e.target.value)}
-                  className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
-                >
-                  {candidateBatches.map(b => (
-                    <option key={b.id} value={b.id}>
-                      {formatDate(b.date)} · {b.supplierName || 'Không rõ NCC'} · {b.qtyRemCon} con / {b.qtyRemKg.toFixed(1)} kg
-                    </option>
-                  ))}
-                </select>
               </div>
             )}
             <div className="grid grid-cols-2 gap-4">
