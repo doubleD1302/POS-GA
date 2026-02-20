@@ -353,11 +353,6 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
 // --- IMPORT PAGE (PHIÊN BẢN NÂNG CẤP HÓA ĐƠN) ---
 // --- IMPORT PAGE (ĐÃ FIX LỖI NÚT THÊM & TÍNH BÌ) ---
 function ImportPage({ navigate }: { navigate: (p: string) => void }) {
-  type ImportDetailEntry = {
-    raw: string;
-    rawKg: number;
-  };
-
   const [suppliers, setSuppliers] = useState<Partner[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [supplierId, setSupplierId] = useState('');
@@ -392,6 +387,14 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
   const [priceMale, setPriceMale] = useState('');
   const [priceFemale, setPriceFemale] = useState('');
   const [lastTicketKey, setLastTicketKey] = useState<string | null>(null);
+  const [isEditDetailModalOpen, setIsEditDetailModalOpen] = useState(false);
+  const [editingTicketIndex, setEditingTicketIndex] = useState<number | null>(null);
+  const [editingDetailIndex, setEditingDetailIndex] = useState<number | null>(null);
+  const [editDetailMode, setEditDetailMode] = useState<'BY_CAGE' | 'BY_WEIGHT'>('BY_CAGE');
+  const [editDetailGrossInput, setEditDetailGrossInput] = useState('');
+  const [editDetailTareInput, setEditDetailTareInput] = useState('');
+  const [editDetailCageInput, setEditDetailCageInput] = useState('2');
+  const [editDetailConInput, setEditDetailConInput] = useState('0');
 
   const [isSupModalOpen, setIsSupModalOpen] = useState(false);
   const [newSupName, setNewSupName] = useState('');
@@ -529,6 +532,112 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
   const detailCon = parseInt(currentCountInput) || 0;
   const detailNetWeight = detailGrossWeight - detailTare;
 
+  const createDetailRawText = (grossKg: number, tareKg: number, mode: 'BY_CAGE' | 'BY_WEIGHT', cageCount: number) => {
+    if (mode === 'BY_CAGE') {
+      return `${grossKg}${tareKg > 0 ? `(-${tareKg}b/${cageCount} lồng)` : ''}`;
+    }
+    return `${grossKg}${tareKg > 0 ? `(-${tareKg}b)` : ''}`;
+  };
+
+  const normalizeEntryForEdit = (entry: ImportDetailEntry) => {
+    const rawText = entry.raw || '';
+    const cageMatch = rawText.match(/\(-([\d.]+)b\/(\d+)\s*lồng\)/i);
+    const tareMatch = rawText.match(/\(-([\d.]+)b\)/i);
+    const grossMatch = rawText.match(/^([\d.]+)/);
+
+    const inferredMode: 'BY_CAGE' | 'BY_WEIGHT' = entry.tareMode
+      || (cageMatch ? 'BY_CAGE' : 'BY_WEIGHT');
+    const inferredTare = Number(entry.tareKg)
+      || Number(cageMatch?.[1])
+      || Number(tareMatch?.[1])
+      || 0;
+    const inferredGross = Number(entry.grossKg)
+      || Number(grossMatch?.[1])
+      || (Number(entry.rawKg) || 0) + inferredTare;
+    const inferredCageCount = Number(entry.cageCount)
+      || Number(cageMatch?.[2])
+      || 2;
+    const inferredCon = Number(entry.con) || 0;
+
+    return {
+      mode: inferredMode,
+      grossKg: inferredGross,
+      tareKg: inferredTare,
+      cageCount: inferredCageCount,
+      con: inferredCon,
+    };
+  };
+
+  const handleOpenEditDetail = (ticketIdx: number, detailIdx: number) => {
+    const ticket = ticketItems[ticketIdx];
+    if (!ticket) return;
+    const entry = (ticket.detailEntries || [])[detailIdx];
+    if (!entry) return;
+
+    const normalized = normalizeEntryForEdit(entry);
+    setEditingTicketIndex(ticketIdx);
+    setEditingDetailIndex(detailIdx);
+    setEditDetailMode(normalized.mode);
+    setEditDetailGrossInput(formatWeightValue(Math.max(0, normalized.grossKg)));
+    setEditDetailTareInput(formatWeightValue(Math.max(0, normalized.tareKg)));
+    setEditDetailCageInput(String(Math.max(0, Math.round(normalized.cageCount))));
+    setEditDetailConInput(String(Math.max(0, Math.round(normalized.con))));
+    setIsEditDetailModalOpen(true);
+  };
+
+  const handleSaveEditedDetail = () => {
+    if (editingTicketIndex === null || editingDetailIndex === null) return;
+    const ticket = ticketItems[editingTicketIndex];
+    if (!ticket) return;
+
+    const grossKg = Number(editDetailGrossInput) || 0;
+    const manualTareKg = Number(editDetailTareInput) || 0;
+    const cageCount = Math.max(0, Math.round(Number(editDetailCageInput) || 0));
+    const con = Math.max(0, Math.round(Number(editDetailConInput) || 0));
+    const tareKg = editDetailMode === 'BY_CAGE' ? cageCount * 5 : Math.max(0, manualTareKg);
+    const rawKg = grossKg - tareKg;
+
+    if (grossKg <= 0) {
+      alert('Vui lòng nhập khối lượng cân > 0');
+      return;
+    }
+    if (rawKg <= 0) {
+      alert('Khối lượng sau trừ bì phải lớn hơn 0');
+      return;
+    }
+
+    const updatedEntries = [...(ticket.detailEntries || [])];
+    updatedEntries[editingDetailIndex] = {
+      raw: createDetailRawText(grossKg, tareKg, editDetailMode, cageCount),
+      rawKg,
+      grossKg,
+      tareKg,
+      con,
+      tareMode: editDetailMode,
+      cageCount,
+    };
+
+    const nextRawKg = updatedEntries.reduce((sum, entry) => sum + (Number(entry.rawKg) || 0), 0);
+    const nextGrossKg = updatedEntries.reduce((sum, entry) => sum + (Number(entry.grossKg) || 0), 0);
+    const nextTareKg = updatedEntries.reduce((sum, entry) => sum + (Number(entry.tareKg) || 0), 0);
+    const nextCon = updatedEntries.reduce((sum, entry) => sum + (Number(entry.con) || 0), 0);
+
+    const nextItem = applyDebtDeductForItem({
+      ...ticket,
+      detailEntries: updatedEntries,
+      rawKg: nextRawKg,
+      gross: nextGrossKg,
+      tare: nextTareKg,
+      con: nextCon,
+      detailsBase: updatedEntries.map(entry => entry.raw).join(' + '),
+    }, getDebtDeductPercentValue());
+
+    setTicketItems(prev => prev.map((item, idx) => (idx === editingTicketIndex ? nextItem : item)));
+    setIsEditDetailModalOpen(false);
+    setEditingTicketIndex(null);
+    setEditingDetailIndex(null);
+  };
+
   const handleAddItemToTicket = () => {
     if (!currentPid) return alert("Chưa chọn loại gà!");
 
@@ -605,7 +714,15 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
       gross: itemGross,
       tare: itemTare,
       detailsBase: detailsStr,
-      detailEntries: [{ raw: detailsStr, rawKg: itemKg }],
+      detailEntries: [{
+        raw: detailsStr,
+        rawKg: itemKg,
+        grossKg: itemGross,
+        tareKg: itemTare,
+        con: itemCon,
+        tareMode: tareMode,
+        cageCount: tareMode === 'BY_CAGE' ? detailCageCount : 0,
+      }],
       details: `${detailsStr} | trừ no ${debtPercentValue}%: -${debtDeductKg.toFixed(2)}kg | nhập kho: ${finalImportedKg.toFixed(2)}kg`,
     };
 
@@ -932,7 +1049,12 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
                   <div>Tổng trừ no {getDebtDeductPercentValue()}%: <span className="font-bold text-red-600">-{item.debtDeductKg.toFixed(2)} kg</span></div>
                   <div className="col-span-2">Thực nhập kho: <span className="font-bold text-emerald-600">{item.kg.toFixed(2)} kg</span></div>
                   <div>Số lượng: <span className="font-bold text-blue-600">{item.con} con</span></div>
-                  <ImportDetailBlock details={item.details} className="col-span-2 mt-2" />
+                  <ImportDetailBlock
+                    details={item.details}
+                    editableEntries={item.detailEntries}
+                    onEditEntry={(detailIdx) => handleOpenEditDetail(idx, detailIdx)}
+                    className="col-span-2 mt-2"
+                  />
                   <div className="col-span-2 border-t border-gray-200 mt-2 pt-2 flex justify-between items-center">
                     <span>Đơn giá: {(item.price / 1000).toLocaleString('vi-VN')} nghìn VND/kg</span>
                     <span className="text-lg font-bold text-gray-800">{formatCurrency(item.total)}</span>
@@ -992,6 +1114,90 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
           <Input label="Tên loại gà" value={prodName} onChange={(e:any) => setProdName(e.target.value)} placeholder="VD: Gà Ri..." />
           <Input label="Giá bán mặc định (nghìn VND/kg)" value={prodPrice} onChange={(e:any) => setProdPrice(e.target.value)} type="number" />
           <Button className="w-full" onClick={handleSaveProduct}>Lưu Thông Tin</Button>
+        </div>
+      </Modal>
+
+      <Modal isOpen={isEditDetailModalOpen} onClose={() => setIsEditDetailModalOpen(false)} title="Chỉnh sửa mã gà">
+        <div className="space-y-3">
+          <div className="flex bg-gray-100 rounded-lg p-1 border border-gray-200">
+            <button
+              onClick={() => setEditDetailMode('BY_CAGE')}
+              className={`px-3 py-1 rounded text-xs font-bold transition-all ${editDetailMode === 'BY_CAGE' ? 'bg-brand-600 text-white shadow' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              Theo lồng
+            </button>
+            <button
+              onClick={() => setEditDetailMode('BY_WEIGHT')}
+              className={`px-3 py-1 rounded text-xs font-bold transition-all ${editDetailMode === 'BY_WEIGHT' ? 'bg-brand-600 text-white shadow' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              Bì thực tế
+            </button>
+          </div>
+
+          <div className="flex gap-2 items-end">
+            <div className="flex-[2]">
+              <label className="text-[10px] text-gray-500 font-bold ml-1">KHỐI LƯỢNG (KG)</label>
+              <input
+                type="number"
+                value={editDetailGrossInput}
+                onChange={(e: any) => setEditDetailGrossInput(e.target.value)}
+                className="w-full px-2 py-2 text-lg font-bold text-left text-gray-800 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none"
+                placeholder="0.0"
+              />
+            </div>
+            {editDetailMode === 'BY_CAGE' ? (
+              <div className="flex-1">
+                <label className="text-[10px] text-red-500 font-bold ml-1">SL LỒNG</label>
+                <input
+                  type="number"
+                  value={editDetailCageInput}
+                  onChange={(e: any) => setEditDetailCageInput(e.target.value)}
+                  className="w-full px-2 py-2 text-lg font-bold text-red-600 bg-red-50 border border-red-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:outline-none"
+                  placeholder="0"
+                />
+              </div>
+            ) : (
+              <div className="flex-1">
+                <label className="text-[10px] text-red-500 font-bold ml-1">BÌ (KG)</label>
+                <input
+                  type="number"
+                  value={editDetailTareInput}
+                  onChange={(e: any) => setEditDetailTareInput(e.target.value)}
+                  className="w-full px-2 py-2 text-lg font-bold text-red-600 bg-red-50 border border-red-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:outline-none"
+                  placeholder="0"
+                />
+              </div>
+            )}
+            <div className="flex-1">
+              <label className="text-[10px] text-gray-500 font-bold ml-1">CON</label>
+              <input
+                type="number"
+                value={editDetailConInput}
+                onChange={(e: any) => setEditDetailConInput(e.target.value)}
+                className="w-full px-2 py-2 text-lg font-bold text-center text-gray-800 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none"
+                placeholder="0"
+              />
+            </div>
+          </div>
+
+          <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-2">
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-gray-500">Tổng cân (Gross):</span>
+              <span className="font-bold text-gray-800">{(Number(editDetailGrossInput) || 0).toFixed(2)} kg</span>
+            </div>
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-gray-500">Tổng trừ bì:</span>
+              <span className="font-bold text-red-500">-{(editDetailMode === 'BY_CAGE' ? (Math.max(0, Math.round(Number(editDetailCageInput) || 0)) * 5) : (Number(editDetailTareInput) || 0)).toFixed(2)} kg</span>
+            </div>
+            <div className="border-t border-gray-300 pt-2 flex justify-between items-center">
+              <span className="font-bold text-brand-700 text-lg">Net thay đổi:</span>
+              <span className={`text-2xl font-bold ${(Number(editDetailGrossInput) || 0) - (editDetailMode === 'BY_CAGE' ? (Math.max(0, Math.round(Number(editDetailCageInput) || 0)) * 5) : (Number(editDetailTareInput) || 0)) >= 0 ? 'text-brand-600' : 'text-red-600'}`}>
+                {((Number(editDetailGrossInput) || 0) - (editDetailMode === 'BY_CAGE' ? (Math.max(0, Math.round(Number(editDetailCageInput) || 0)) * 5) : (Number(editDetailTareInput) || 0))).toFixed(2)} kg
+              </span>
+            </div>
+          </div>
+
+          <Button className="w-full py-3 text-lg" onClick={handleSaveEditedDetail}>Lưu chỉnh sửa</Button>
         </div>
       </Modal>
 
