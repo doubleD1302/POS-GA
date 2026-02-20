@@ -10,6 +10,7 @@ import { Partner, PartnerType, BankSettings, Invoice, CashTransaction, PreOrder,
 
 type ParsedImportDetailEntry = {
   raw: string;
+  debtLabel: string;
   debtDeduct: string;
   netImport: string;
   extras: string[];
@@ -28,6 +29,7 @@ const parseImportDetailEntries = (details?: string): ParsedImportDetailEntry[] =
 
       const result: ParsedImportDetailEntry = {
         raw: segments[0] || '-',
+        debtLabel: 'Trừ nợ',
         debtDeduct: '-',
         netImport: '-',
         extras: [],
@@ -35,8 +37,9 @@ const parseImportDetailEntries = (details?: string): ParsedImportDetailEntry[] =
 
       segments.slice(1).forEach((segment) => {
         const normalized = segment.toLowerCase();
-        if (normalized.startsWith('trừ no 2%:')) {
-          result.debtDeduct = segment.replace(/^trừ no 2%:\s*/i, '').trim() || '-';
+        if (normalized.startsWith('trừ no')) {
+          result.debtLabel = (segment.split(':')[0] || 'Trừ nợ').trim();
+          result.debtDeduct = segment.replace(/^trừ no[^:]*:\s*/i, '').trim() || '-';
           return;
         }
         if (normalized.startsWith('nhập kho:')) {
@@ -70,7 +73,7 @@ function ImportDetailBlock({ details, className = '' }: { details?: string; clas
                   <span className="font-semibold text-gray-700 text-right break-words">{entry.raw}</span>
                 </div>
                 <div className="flex justify-between gap-2">
-                  <span className="text-gray-500">Trừ no 2%</span>
+                  <span className="text-gray-500">{entry.debtLabel}</span>
                   <span className="font-semibold text-red-600 text-right break-words">{entry.debtDeduct}</span>
                 </div>
                 <div className="flex justify-between gap-2">
@@ -196,6 +199,11 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
 // --- IMPORT PAGE (PHIÊN BẢN NÂNG CẤP HÓA ĐƠN) ---
 // --- IMPORT PAGE (ĐÃ FIX LỖI NÚT THÊM & TÍNH BÌ) ---
 function ImportPage({ navigate }: { navigate: (p: string) => void }) {
+  type ImportDetailEntry = {
+    raw: string;
+    rawKg: number;
+  };
+
   const [suppliers, setSuppliers] = useState<Partner[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [supplierId, setSupplierId] = useState('');
@@ -212,6 +220,8 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
       total: number;
       gross: number;
       tare: number;
+      detailsBase: string;
+      detailEntries: ImportDetailEntry[];
       details: string;
   }[]>([]);
 
@@ -221,6 +231,7 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
   const [currentTareInput, setCurrentTareInput] = useState('');
   const [currentCageInput, setCurrentCageInput] = useState('2');
   const [currentCountInput, setCurrentCountInput] = useState('');
+  const [debtDeductPercent, setDebtDeductPercent] = useState('2');
   const [isKeypadOpen, setIsKeypadOpen] = useState(false);
   const [keypadTarget, setKeypadTarget] = useState<'WEIGHT' | 'COUNT' | null>(null);
   const [keypadExpression, setKeypadExpression] = useState('');
@@ -238,6 +249,41 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
   const [prodPrice, setProdPrice] = useState('');
 
   const [gender, setGender] = useState<Gender>('MALE');
+
+  const getDebtDeductPercentValue = () => {
+    const parsed = Number(debtDeductPercent);
+    if (!Number.isFinite(parsed)) return 0;
+    return Math.max(0, parsed);
+  };
+
+  const applyDebtDeductForItem = (item: any, percent: number) => {
+    const safePercent = Math.max(0, percent);
+    const rate = safePercent / 100;
+    const debtDeductKg = (Number(item.rawKg) || 0) * rate;
+    const kg = (Number(item.rawKg) || 0) - debtDeductKg;
+    const normalizedEntries: ImportDetailEntry[] = Array.isArray(item.detailEntries) && item.detailEntries.length > 0
+      ? item.detailEntries
+      : [{ raw: item.detailsBase || '', rawKg: Number(item.rawKg) || 0 }];
+
+    const details = normalizedEntries
+      .map((entry) => {
+        const entryRawKg = Number(entry.rawKg) || 0;
+        const entryDebtDeductKg = entryRawKg * rate;
+        const entryNetImportKg = entryRawKg - entryDebtDeductKg;
+        return `${entry.raw} | trừ no ${safePercent}%: -${entryDebtDeductKg.toFixed(2)}kg | nhập kho: ${entryNetImportKg.toFixed(2)}kg`;
+      })
+      .join(' + ');
+
+    return {
+      ...item,
+      detailEntries: normalizedEntries,
+      detailsBase: normalizedEntries.map(entry => entry.raw).join(' + '),
+      debtDeductKg,
+      kg,
+      total: kg * (Number(item.price) || 0),
+      details,
+    };
+  };
 
   const evaluateMathExpression = (expression: string): number => {
     const sanitized = (expression || '').replace(/\s+/g, '');
@@ -301,6 +347,11 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
 
     setIsKeypadOpen(false);
   };
+
+  useEffect(() => {
+    const percent = getDebtDeductPercentValue();
+    setTicketItems(prev => prev.map(item => applyDebtDeductForItem(item, percent)));
+  }, [debtDeductPercent]);
 
   const loadSuppliers = () => {
     const list = db.getPartners(PartnerType.SUPPLIER);
@@ -431,7 +482,8 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
     }
 
     const prod = products.find(p => p.id === currentPid);
-    const debtDeductKg = itemKg > 0 ? itemKg * 0.02 : 0;
+    const debtPercentValue = getDebtDeductPercentValue();
+    const debtDeductKg = itemKg > 0 ? itemKg * (debtPercentValue / 100) : 0;
     const finalImportedKg = itemKg - debtDeductKg;
 
     const newItem = {
@@ -446,7 +498,9 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
       total: finalImportedKg * priceNum,
       gross: itemGross,
       tare: itemTare,
-      details: `${detailsStr} | trừ no 2%: -${debtDeductKg.toFixed(2)}kg | nhập kho: ${finalImportedKg.toFixed(2)}kg`,
+      detailsBase: detailsStr,
+      detailEntries: [{ raw: detailsStr, rawKg: itemKg }],
+      details: `${detailsStr} | trừ no ${debtPercentValue}%: -${debtDeductKg.toFixed(2)}kg | nhập kho: ${finalImportedKg.toFixed(2)}kg`,
     };
 
     const newItemKey = `${keyWithoutPrice}|${priceNum}`;
@@ -462,20 +516,23 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
       updatedItems[updatedItems.length - 1] = {
         ...existing,
         rawKg: existing.rawKg + newItem.rawKg,
-        debtDeductKg: existing.debtDeductKg + newItem.debtDeductKg,
+        debtDeductKg: 0,
         kg: mergedKg,
         con: existing.con + newItem.con,
-        total: existing.total + newItem.total,
+        total: 0,
         gross: existing.gross + newItem.gross,
         tare: existing.tare + newItem.tare,
-        details: `${existing.details} + ${newItem.details}`,
+        detailsBase: `${existing.detailsBase || ''} + ${newItem.detailsBase || ''}`.trim(),
+        detailEntries: [...(existing.detailEntries || []), ...(newItem.detailEntries || [])],
+        details: '',
       };
+      updatedItems[updatedItems.length - 1] = applyDebtDeductForItem(updatedItems[updatedItems.length - 1], debtPercentValue);
       setTicketItems(updatedItems);
     } else {
       if (newItem.kg < 0) {
         return alert("Không thể tạo dòng mới chỉ với bì âm kg. Hãy nhập thêm khối lượng hoặc trừ bì trên dòng vừa nhập.");
       }
-      setTicketItems([...ticketItems, newItem]);
+      setTicketItems([...ticketItems, applyDebtDeductForItem(newItem, debtPercentValue)]);
     }
     setLastTicketKey(newItemKey);
 
@@ -709,11 +766,30 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
           </div>
         </>
 
-        <div className="grid grid-cols-2 gap-3 mt-4">
-          <Input label="Giá nhập (nghìn VND/kg)" type="number" value={gender === 'MALE' ? priceMale : priceFemale} onChange={(e: any) => gender === 'MALE' ? setPriceMale(e.target.value) : setPriceFemale(e.target.value)} className="font-bold" placeholder="0" />
+          <div className="grid grid-cols-3 gap-3 mt-4 items-start">
           <div className="flex flex-col">
-            <label className="text-sm font-bold text-gray-700 mb-1">Số con</label>
-            <div className="w-full px-3 py-2 bg-gray-100 border border-gray-200 rounded-lg text-gray-800 font-bold">
+            <label className="min-h-[38px] text-sm font-bold text-gray-700 mb-1 leading-tight">Giá nhập (nghìn VND/kg)</label>
+            <input
+              type="number"
+              value={gender === 'MALE' ? priceMale : priceFemale}
+              onChange={(e: any) => gender === 'MALE' ? setPriceMale(e.target.value) : setPriceFemale(e.target.value)}
+              className="w-full h-12 px-3 bg-slate-700 border border-slate-600 rounded-lg text-white font-bold focus:outline-none focus:ring-2 focus:ring-brand-500"
+              placeholder="0"
+            />
+          </div>
+          <div className="flex flex-col">
+            <label className="min-h-[38px] text-sm font-bold text-gray-700 mb-1 leading-tight">% trừ no</label>
+            <input
+              type="number"
+              value={debtDeductPercent}
+              onChange={(e: any) => setDebtDeductPercent(e.target.value)}
+              className="w-full h-12 px-3 bg-slate-700 border border-slate-600 rounded-lg text-white font-bold focus:outline-none focus:ring-2 focus:ring-brand-500"
+              placeholder="2"
+            />
+          </div>
+          <div className="flex flex-col">
+            <label className="min-h-[38px] text-sm font-bold text-gray-700 mb-1 leading-tight">Số con</label>
+            <div className="w-full h-12 px-3 bg-gray-100 border border-gray-200 rounded-lg text-gray-800 font-bold flex items-center">
               {detailCon}
             </div>
           </div>
@@ -747,7 +823,7 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
                   <div>Trừ bì: <span className="font-bold text-red-600">-{item.tare.toFixed(2)} kg</span></div>
                   <div className="col-span-2 border-b border-gray-100 my-1"></div>
                   <div>Thực nhập (sau bì): <span className="font-bold text-blue-600">{item.rawKg.toFixed(2)} kg</span></div>
-                  <div>Tổng trừ no 2%: <span className="font-bold text-red-600">-{item.debtDeductKg.toFixed(2)} kg</span></div>
+                  <div>Tổng trừ no {getDebtDeductPercentValue()}%: <span className="font-bold text-red-600">-{item.debtDeductKg.toFixed(2)} kg</span></div>
                   <div className="col-span-2">Thực nhập kho: <span className="font-bold text-emerald-600">{item.kg.toFixed(2)} kg</span></div>
                   <div>Số lượng: <span className="font-bold text-blue-600">{item.con} con</span></div>
                   <ImportDetailBlock details={item.details} className="col-span-2 mt-2" />
@@ -770,7 +846,7 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
               <span>{ticketItems.reduce((a, b) => a + b.rawKg, 0).toFixed(2)} kg</span>
             </div>
             <div className="flex justify-between items-center text-sm mb-3">
-              <span className="text-gray-300">Tổng trừ no 2%:</span>
+              <span className="text-gray-300">Tổng trừ no {getDebtDeductPercentValue()}%:</span>
               <span>-{ticketItems.reduce((a, b) => a + b.debtDeductKg, 0).toFixed(2)} kg</span>
             </div>
             <div className="flex justify-between items-center text-sm mb-3">
