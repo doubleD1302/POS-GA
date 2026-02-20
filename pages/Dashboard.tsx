@@ -548,7 +548,7 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
             onClick={handleSalesMenuClick}
             className={`text-sm font-black uppercase tracking-wide px-5 py-3 rounded-lg border shadow-md hover:shadow-lg transition-all ${isSalesUnlocked ? 'bg-blue-700 text-white border-blue-800' : 'bg-blue-600 text-white border-blue-700 hover:bg-blue-700'}`}
           >
-            QUẢN LÝ DOANH SỐ
+            QUẢN LÝ DOANH THU NGÀY
           </button>
         </div>
 
