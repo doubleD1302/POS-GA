@@ -179,13 +179,21 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
     onApply(target, formatWeightValue(Math.max(0, value)));
   }, [expression, onApply, target]);
 
+  const blockContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+  }, []);
+
   return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
       title={target === 'COUNT' ? 'Nhập số con' : 'Nhập khối lượng (kg)'}
     >
-      <div className="space-y-3">
+      <div
+        className="space-y-3 select-none"
+        onContextMenu={blockContextMenu}
+        style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none', touchAction: 'manipulation' }}
+      >
         <div className="w-full min-h-[56px] px-4 py-3 bg-slate-900 text-white rounded-lg text-3xl font-black tracking-wide text-right break-all">
           {expression || '0'}
         </div>
