@@ -543,20 +543,12 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
       </header>
 
       <Card className="p-0 overflow-hidden">
-        <div className="p-4 flex items-center justify-between gap-3">
-          <button onClick={handleSalesMenuClick} className="flex-1 text-left hover:opacity-90 transition-opacity">
-            <div>
-              <h3 className="text-base font-bold text-gray-800">Quản lý doanh số</h3>
-              <p className="text-xs text-gray-500 mt-1">
-                {!isSalesUnlocked ? 'Nhấn để nhập mã và mở bảng chỉ số' : isSalesExpanded ? 'Đang mở chi tiết. Nhấn lại để thu gọn.' : 'Đã mở khoá. Nhấn để xem lại chi tiết.'}
-              </p>
-            </div>
-          </button>
+        <div className="p-4 flex justify-center">
           <button
-            onClick={handleSalesSecurityToggle}
-            className={`text-xs font-bold px-2 py-1 rounded border ${isSalesUnlocked ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-100 text-gray-600 border-gray-200'}`}
+            onClick={handleSalesMenuClick}
+            className={`text-sm font-black uppercase tracking-wide px-5 py-3 rounded-lg border shadow-md hover:shadow-lg transition-all ${isSalesUnlocked ? 'bg-blue-700 text-white border-blue-800' : 'bg-blue-600 text-white border-blue-700 hover:bg-blue-700'}`}
           >
-            {isSalesUnlocked ? 'Đóng' : 'Xem'}
+            QUẢN LÝ DOANH SỐ
           </button>
         </div>
 
@@ -575,15 +567,14 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
       </Card>
 
       <Card className="p-0 overflow-hidden">
-        <button onClick={() => setIsExpenseExpanded(prev => !prev)} className="w-full text-left p-4 hover:bg-gray-50 transition-colors">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-base font-bold text-gray-800">Chi phí khác</h3>
-              <p className="text-xs text-gray-500 mt-1">Nhấn để mở form ghi nhận chi phí</p>
-            </div>
-            <span className="text-xs font-bold px-2 py-1 rounded bg-yellow-50 text-yellow-700 border border-yellow-200">{isExpenseExpanded ? 'Thu gọn ▲' : 'Mở rộng ▼'}</span>
-          </div>
-        </button>
+        <div className="p-4 flex justify-center">
+          <button
+            onClick={() => setIsExpenseExpanded(prev => !prev)}
+            className={`text-sm font-black uppercase tracking-wide px-5 py-3 rounded-lg border shadow-md hover:shadow-lg transition-all ${isExpenseExpanded ? 'bg-brand-700 text-white border-brand-800' : 'bg-brand-600 text-white border-brand-700 hover:bg-brand-700'}`}
+          >
+            NHẬP CHI PHÍ KHÁC
+          </button>
+        </div>
 
         {isExpenseExpanded && (
           <div className="border-t border-gray-100 p-4 bg-gray-50">

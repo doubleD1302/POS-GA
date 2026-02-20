@@ -1197,14 +1197,6 @@ function CashbookPage() {
     }
   };
 
-  const handleSummaryMenuClick = () => {
-    if (!isSummaryUnlocked) {
-      handleSummarySecurityToggle();
-      return;
-    }
-    setIsSummaryExpanded(prev => !prev);
-  };
-
   // --- REPORT GENERATION ---
   const ReportModal = () => {
     if (!isReportOpen) return null;
@@ -1749,19 +1741,13 @@ function CashbookPage() {
         </div>
       </Card>
 
-      <Card className="mb-4 p-0 overflow-hidden">
-        <div className="p-4 flex items-center justify-between gap-3">
-          <button onClick={handleSummaryMenuClick} className="flex-1 text-left hover:opacity-90 transition-opacity">
-            <h3 className="text-base font-bold text-gray-800">Chỉ số Sổ quỹ</h3>
-            <p className="text-xs text-gray-500 mt-1">
-              {!isSummaryUnlocked ? 'Nhấn để nhập mã và mở bảng chỉ số' : isSummaryExpanded ? 'Đang mở chi tiết. Nhấn lại để thu gọn.' : 'Đã mở khoá. Nhấn để xem lại chi tiết.'}
-            </p>
-          </button>
+      <Card className="mb-4 p-3">
+        <div className="flex justify-center">
           <button
             onClick={handleSummarySecurityToggle}
-            className={`text-xs font-bold px-2 py-1 rounded border ${isSummaryUnlocked ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-100 text-gray-600 border-gray-200'}`}
+            className={`text-sm font-black uppercase tracking-wide px-5 py-3 rounded-lg border shadow-md hover:shadow-lg transition-all ${isSummaryUnlocked ? 'bg-blue-700 text-white border-blue-800' : 'bg-blue-600 text-white border-blue-700 hover:bg-blue-700'}`}
           >
-            {isSummaryUnlocked ? 'Đóng' : 'Xem'}
+            QUẢN LÝ DOANH THU THÁNG
           </button>
         </div>
 
