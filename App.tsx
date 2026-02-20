@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import Dashboard from './pages/Dashboard';
 import POS from './pages/POS';
@@ -96,6 +96,126 @@ function ImportDetailBlock({ details, className = '' }: { details?: string; clas
     </div>
   );
 }
+
+type KeypadTarget = 'WEIGHT' | 'COUNT';
+
+const evaluateMathExpression = (expression: string): number => {
+  const sanitized = (expression || '').replace(/\s+/g, '');
+  if (!sanitized) return NaN;
+  if (!/^[0-9+\-*/().]+$/.test(sanitized)) return NaN;
+  try {
+    const result = Function(`"use strict"; return (${sanitized});`)();
+    return Number(result);
+  } catch {
+    return NaN;
+  }
+};
+
+const formatWeightValue = (value: number) => {
+  const fixed = value.toFixed(3);
+  return fixed.replace(/\.0+$/, '').replace(/(\.\d*[1-9])0+$/, '$1');
+};
+
+const KEYPAD_TOKENS = ['7', '8', '9', '/', '4', '5', '6', '*', '1', '2', '3', '-', '0', '.', '(', ')'];
+
+const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
+  isOpen,
+  target,
+  initialExpression,
+  onClose,
+  onApply,
+}: {
+  isOpen: boolean;
+  target: KeypadTarget;
+  initialExpression: string;
+  onClose: () => void;
+  onApply: (target: KeypadTarget, value: string) => void;
+}) {
+  const [expression, setExpression] = useState('');
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setExpression(initialExpression || '');
+  }, [isOpen, initialExpression, target]);
+
+  const appendToken = useCallback((token: string) => {
+    setExpression(prev => {
+      if (target === 'COUNT' && token === '.') return prev;
+      return `${prev}${token}`;
+    });
+  }, [target]);
+
+  const handleBackspace = useCallback(() => {
+    setExpression(prev => prev.slice(0, -1));
+  }, []);
+
+  const handleEqual = useCallback(() => {
+    const value = evaluateMathExpression(expression);
+    if (!Number.isFinite(value)) {
+      alert('Biểu thức không hợp lệ');
+      return;
+    }
+
+    if (target === 'COUNT') {
+      setExpression(String(Math.max(0, Math.round(value))));
+      return;
+    }
+
+    setExpression(formatWeightValue(Math.max(0, value)));
+  }, [expression, target]);
+
+  const handleApply = useCallback(() => {
+    const value = evaluateMathExpression(expression);
+    if (!Number.isFinite(value)) {
+      alert('Biểu thức không hợp lệ');
+      return;
+    }
+
+    if (target === 'COUNT') {
+      onApply(target, String(Math.max(0, Math.round(value))));
+      return;
+    }
+
+    onApply(target, formatWeightValue(Math.max(0, value)));
+  }, [expression, onApply, target]);
+
+  return (
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={target === 'COUNT' ? 'Nhập số con' : 'Nhập khối lượng (kg)'}
+    >
+      <div className="space-y-3">
+        <div className="w-full min-h-[56px] px-4 py-3 bg-slate-900 text-white rounded-lg text-3xl font-black tracking-wide text-right break-all">
+          {expression || '0'}
+        </div>
+
+        <div className="grid grid-cols-4 gap-2">
+          {KEYPAD_TOKENS.map((token) => (
+            <button
+              key={token}
+              type="button"
+              onClick={() => appendToken(token)}
+              className={`h-14 rounded-lg border font-black text-2xl ${token === '.' && target === 'COUNT' ? 'opacity-30 cursor-not-allowed bg-gray-100 text-gray-400 border-gray-200' : 'bg-white text-gray-800 border-gray-300 active:bg-brand-50'}`}
+              disabled={token === '.' && target === 'COUNT'}
+            >
+              {token === '*' ? '×' : token}
+            </button>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-4 gap-2">
+          <button type="button" onClick={handleBackspace} className="h-14 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 font-black text-xl active:bg-amber-100">⌫</button>
+          <button type="button" onClick={() => setExpression('')} className="h-14 rounded-lg border border-gray-300 bg-gray-100 text-gray-700 font-black text-xl active:bg-gray-200">C</button>
+          <button type="button" onClick={handleEqual} className="h-14 rounded-lg border border-brand-200 bg-brand-50 text-brand-700 font-black text-2xl active:bg-brand-100">=</button>
+          <button type="button" onClick={() => appendToken('+')} className="h-14 rounded-lg border border-gray-300 bg-white text-gray-800 font-black text-2xl active:bg-brand-50">+</button>
+        </div>
+
+        <Button className="w-full py-3 text-lg" onClick={handleApply}>Xong</Button>
+      </div>
+    </Modal>
+  );
+});
 
 // --- LOGIN COMPONENT ---
 // --- LOGIN COMPONENT (ĐÃ SỬA ĐỂ KÍCH HOẠT ĐỒNG BỘ) ---
@@ -233,8 +353,8 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
   const [currentCountInput, setCurrentCountInput] = useState('');
   const [debtDeductPercent, setDebtDeductPercent] = useState('2');
   const [isKeypadOpen, setIsKeypadOpen] = useState(false);
-  const [keypadTarget, setKeypadTarget] = useState<'WEIGHT' | 'COUNT' | null>(null);
-  const [keypadExpression, setKeypadExpression] = useState('');
+  const [keypadTarget, setKeypadTarget] = useState<KeypadTarget>('WEIGHT');
+  const [keypadInitialValue, setKeypadInitialValue] = useState('');
   const [priceMale, setPriceMale] = useState('');
   const [priceFemale, setPriceFemale] = useState('');
   const [lastTicketKey, setLastTicketKey] = useState<string | null>(null);
@@ -285,68 +405,20 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
     };
   };
 
-  const evaluateMathExpression = (expression: string): number => {
-    const sanitized = (expression || '').replace(/\s+/g, '');
-    if (!sanitized) return NaN;
-    if (!/^[0-9+\-*/().]+$/.test(sanitized)) return NaN;
-    try {
-      const result = Function(`"use strict"; return (${sanitized});`)();
-      return Number(result);
-    } catch {
-      return NaN;
-    }
-  };
-
-  const formatWeightValue = (value: number) => {
-    const fixed = value.toFixed(3);
-    return fixed.replace(/\.0+$/, '').replace(/(\.\d*[1-9])0+$/, '$1');
-  };
-
-  const openKeypad = (target: 'WEIGHT' | 'COUNT') => {
+  const openKeypad = (target: KeypadTarget) => {
     setKeypadTarget(target);
-    setKeypadExpression(target === 'WEIGHT' ? currentWeightInput : currentCountInput);
+    setKeypadInitialValue(target === 'WEIGHT' ? currentWeightInput : currentCountInput);
     setIsKeypadOpen(true);
   };
 
-  const appendKeypadToken = (token: string) => {
-    setKeypadExpression(prev => {
-      if (keypadTarget === 'COUNT' && token === '.') return prev;
-      return `${prev}${token}`;
-    });
-  };
-
-  const handleKeypadBackspace = () => {
-    setKeypadExpression(prev => prev.slice(0, -1));
-  };
-
-  const handleKeypadEqual = () => {
-    const value = evaluateMathExpression(keypadExpression);
-    if (!Number.isFinite(value)) {
-      alert('Biểu thức không hợp lệ');
-      return;
-    }
-    if ((keypadTarget || 'WEIGHT') === 'COUNT') {
-      setKeypadExpression(String(Math.max(0, Math.round(value))));
-      return;
-    }
-    setKeypadExpression(formatWeightValue(Math.max(0, value)));
-  };
-
-  const handleKeypadApply = () => {
-    const value = evaluateMathExpression(keypadExpression);
-    if (!Number.isFinite(value)) {
-      alert('Biểu thức không hợp lệ');
-      return;
-    }
-
-    if (keypadTarget === 'COUNT') {
-      setCurrentCountInput(String(Math.max(0, Math.round(value))));
+  const handleKeypadApply = useCallback((target: KeypadTarget, value: string) => {
+    if (target === 'COUNT') {
+      setCurrentCountInput(value);
     } else {
-      setCurrentWeightInput(formatWeightValue(Math.max(0, value)));
+      setCurrentWeightInput(value);
     }
-
     setIsKeypadOpen(false);
-  };
+  }, []);
 
   useEffect(() => {
     const percent = getDebtDeductPercentValue();
@@ -889,40 +961,13 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
         </div>
       </Modal>
 
-      <Modal
+      <VirtualKeypadModal
         isOpen={isKeypadOpen}
+        target={keypadTarget}
+        initialExpression={keypadInitialValue}
         onClose={() => setIsKeypadOpen(false)}
-        title={keypadTarget === 'COUNT' ? 'Nhập số con' : 'Nhập khối lượng (kg)'}
-      >
-        <div className="space-y-3">
-          <div className="w-full min-h-[56px] px-4 py-3 bg-slate-900 text-white rounded-lg text-3xl font-black tracking-wide text-right break-all">
-            {keypadExpression || '0'}
-          </div>
-
-          <div className="grid grid-cols-4 gap-2">
-            {['7', '8', '9', '/','4', '5', '6', '*','1', '2', '3', '-','0', '.', '(', ')'].map((token) => (
-              <button
-                key={token}
-                type="button"
-                onClick={() => appendKeypadToken(token)}
-                className={`h-14 rounded-lg border font-black text-2xl ${token === '.' && keypadTarget === 'COUNT' ? 'opacity-30 cursor-not-allowed bg-gray-100 text-gray-400 border-gray-200' : 'bg-white text-gray-800 border-gray-300 active:bg-brand-50'}`}
-                disabled={token === '.' && keypadTarget === 'COUNT'}
-              >
-                {token === '*' ? '×' : token}
-              </button>
-            ))}
-          </div>
-
-          <div className="grid grid-cols-4 gap-2">
-            <button type="button" onClick={handleKeypadBackspace} className="h-14 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 font-black text-xl active:bg-amber-100">⌫</button>
-            <button type="button" onClick={() => setKeypadExpression('')} className="h-14 rounded-lg border border-gray-300 bg-gray-100 text-gray-700 font-black text-xl active:bg-gray-200">C</button>
-            <button type="button" onClick={handleKeypadEqual} className="h-14 rounded-lg border border-brand-200 bg-brand-50 text-brand-700 font-black text-2xl active:bg-brand-100">=</button>
-            <button type="button" onClick={() => appendKeypadToken('+')} className="h-14 rounded-lg border border-gray-300 bg-white text-gray-800 font-black text-2xl active:bg-brand-50">+</button>
-          </div>
-
-          <Button className="w-full py-3 text-lg" onClick={handleKeypadApply}>Xong</Button>
-        </div>
-      </Modal>
+        onApply={handleKeypadApply}
+      />
     </div>
   );
 }
