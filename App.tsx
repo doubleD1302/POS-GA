@@ -16,6 +16,16 @@ type ParsedImportDetailEntry = {
   extras: string[];
 };
 
+type ImportDetailEntry = {
+  raw: string;
+  rawKg: number;
+  grossKg?: number;
+  tareKg?: number;
+  con?: number;
+  tareMode?: 'BY_CAGE' | 'BY_WEIGHT';
+  cageCount?: number;
+};
+
 const parseImportDetailEntries = (details?: string): ParsedImportDetailEntry[] => {
   return (details || '')
     .split(' + ')
@@ -53,19 +63,35 @@ const parseImportDetailEntries = (details?: string): ParsedImportDetailEntry[] =
     });
 };
 
-function ImportDetailBlock({ details, className = '' }: { details?: string; className?: string }) {
+function ImportDetailBlock({
+  details,
+  className = '',
+  editableEntries,
+  onEditEntry,
+}: {
+  details?: string;
+  className?: string;
+  editableEntries?: ImportDetailEntry[];
+  onEditEntry?: (entryIndex: number) => void;
+}) {
   const parsed = parseImportDetailEntries(details);
+  const canEdit = Array.isArray(editableEntries) && editableEntries.length > 0 && typeof onEditEntry === 'function';
 
   return (
     <div className={`bg-slate-50 border border-slate-200 rounded p-2 ${className}`.trim()}>
       <div className="text-[11px] font-bold text-slate-600 mb-2">Chi tiết mã gà</div>
+      {canEdit && <div className="text-[10px] text-slate-500 mb-2">Double click vào từng mã để chỉnh sửa.</div>}
 
       {parsed.length === 0 ? (
         <div className="text-xs text-gray-500">-</div>
       ) : (
         <div className="space-y-2">
           {parsed.map((entry, idx) => (
-            <div key={idx} className="bg-white border border-slate-200 rounded p-2">
+            <div
+              key={idx}
+              className={`bg-white border border-slate-200 rounded p-2 ${canEdit ? 'cursor-pointer hover:border-brand-300' : ''}`}
+              onDoubleClick={() => onEditEntry?.(idx)}
+            >
               <div className="text-[11px] font-bold text-brand-700 mb-1">Mã {idx + 1}</div>
               <div className="space-y-1 text-xs">
                 <div className="flex justify-between gap-2">
