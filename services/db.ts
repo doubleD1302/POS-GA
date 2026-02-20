@@ -353,84 +353,6 @@ class Database {
       groupedByType.set(key, current);
     });
 
-    const sortedExportInvoices = invoices
-      .filter(inv => inv.type === 'EXPORT')
-      .sort((a, b) => {
-        const diff = new Date(a.date).getTime() - new Date(b.date).getTime();
-        if (diff !== 0) return diff;
-        return (a.code || '').localeCompare(b.code || '');
-      });
-
-    const cogsByInvoice: Record<string, number> = {};
-    const saleMovements: StockMovement[] = [];
-
-    sortedExportInvoices.forEach((invoice) => {
-      let invoiceCogs = 0;
-      const saleLines = (invoice.lines || []).filter(line => line.productId !== 'MANUAL');
-      const products = this.getProducts();
-
-      saleLines.forEach((line, lineIdx) => {
-        const targetGender = line.gender || 'MALE';
-        let remainingKg = Number(line.qtyKg) || 0;
-        let remainingCon = Number(line.qtyCon) || 0;
-
-        const key = `${line.productId}__${targetGender}`;
-        const bucket = groupedByType.get(key);
-
-        if (!bucket) {
-          const fallbackProduct = products.find(p => p.id === line.productId);
-          const fallbackCost = targetGender === 'MALE'
-            ? (Number(fallbackProduct?.costMale) || 0)
-            : (Number(fallbackProduct?.costFemale) || 0);
-          if (remainingKg > 0 && fallbackCost > 0) {
-            invoiceCogs += remainingKg * fallbackCost;
-          }
-          return;
-        }
-
-        const takeKg = Math.min(Number(bucket.qtyRemKg) || 0, remainingKg);
-        const takeCon = Math.min(Number(bucket.qtyRemCon) || 0, remainingCon);
-
-        if (takeKg > 0 || takeCon > 0) {
-          invoiceCogs += takeKg * (Number(bucket.costPerKg) || 0);
-          bucket.qtyRemKg = Math.max(0, (Number(bucket.qtyRemKg) || 0) - takeKg);
-          bucket.qtyRemCon = Math.max(0, (Number(bucket.qtyRemCon) || 0) - takeCon);
-          bucket.status = (bucket.qtyRemKg <= 0.1 && bucket.qtyRemCon <= 0) ? 'CLOSED' : 'OPEN';
-          remainingKg -= takeKg;
-          remainingCon -= takeCon;
-
-          saleMovements.push({
-            id: `stk-sale-${invoice.id}-${lineIdx}-${bucket.id}`,
-            occurredAt: this.toMovementDate(invoice.date, '12:00:00'),
-            productId: line.productId,
-            productName: line.productName,
-            gender: targetGender,
-            batchId: bucket.id,
-            invoiceId: invoice.id,
-            invoiceCode: invoice.code,
-            source: 'SALE',
-            deltaKg: -takeKg,
-            deltaCon: -takeCon,
-            afterKg: bucket.qtyRemKg,
-            afterCon: bucket.qtyRemCon,
-            note: `Xuất bán ${invoice.partnerName} (${invoice.code})`,
-          });
-        }
-
-        if (remainingKg > 0) {
-          const fallbackProduct = products.find(p => p.id === line.productId);
-          const fallbackCost = targetGender === 'MALE'
-            ? (Number(fallbackProduct?.costMale) || 0)
-            : (Number(fallbackProduct?.costFemale) || 0);
-          if (fallbackCost > 0) {
-            invoiceCogs += remainingKg * fallbackCost;
-          }
-        }
-      });
-
-      cogsByInvoice[invoice.id] = invoiceCogs;
-    });
-
     const manualDeltasByType = this.getManualStockMovements().reduce((acc, movement) => {
       const key = `${movement.productId}__${movement.gender || 'MALE'}`;
       if (!acc[key]) {
@@ -468,6 +390,78 @@ class Database {
       current.qtyRemKg = Math.max(0, (Number(current.qtyRemKg) || 0) + delta.deltaKg);
       current.status = (current.qtyRemKg <= 0.1 && current.qtyRemCon <= 0) ? 'CLOSED' : 'OPEN';
       groupedByType.set(key, current);
+    });
+
+    const sortedExportInvoices = invoices
+      .filter(inv => inv.type === 'EXPORT')
+      .sort((a, b) => {
+        const diff = new Date(a.date).getTime() - new Date(b.date).getTime();
+        if (diff !== 0) return diff;
+        return (a.code || '').localeCompare(b.code || '');
+      });
+
+    const cogsByInvoice: Record<string, number> = {};
+    const saleMovements: StockMovement[] = [];
+
+    sortedExportInvoices.forEach((invoice) => {
+      let invoiceCogs = 0;
+      const saleLines = (invoice.lines || []).filter(line => line.productId !== 'MANUAL');
+      const products = this.getProducts();
+
+      saleLines.forEach((line, lineIdx) => {
+        const targetGender = (line.gender || 'MALE') as Gender;
+        const alternateGender: Gender = targetGender === 'MALE' ? 'FEMALE' : 'MALE';
+        let remainingKg = Number(line.qtyKg) || 0;
+        let remainingCon = Number(line.qtyCon) || 0;
+
+        const candidateKeys = [`${line.productId}__${targetGender}`, `${line.productId}__${alternateGender}`];
+
+        candidateKeys.forEach((key) => {
+          if (remainingKg <= 0 && remainingCon <= 0) return;
+          const bucket = groupedByType.get(key);
+          if (!bucket) return;
+
+          const takeKg = Math.min(Number(bucket.qtyRemKg) || 0, remainingKg);
+          const takeCon = Math.min(Number(bucket.qtyRemCon) || 0, remainingCon);
+          if (takeKg <= 0 && takeCon <= 0) return;
+
+          invoiceCogs += takeKg * (Number(bucket.costPerKg) || 0);
+          bucket.qtyRemKg = Math.max(0, (Number(bucket.qtyRemKg) || 0) - takeKg);
+          bucket.qtyRemCon = Math.max(0, (Number(bucket.qtyRemCon) || 0) - takeCon);
+          bucket.status = (bucket.qtyRemKg <= 0.1 && bucket.qtyRemCon <= 0) ? 'CLOSED' : 'OPEN';
+          remainingKg -= takeKg;
+          remainingCon -= takeCon;
+
+          saleMovements.push({
+            id: `stk-sale-${invoice.id}-${lineIdx}-${bucket.id}`,
+            occurredAt: this.toMovementDate(invoice.date, '12:00:00'),
+            productId: line.productId,
+            productName: line.productName,
+            gender: bucket.gender || targetGender,
+            batchId: bucket.id,
+            invoiceId: invoice.id,
+            invoiceCode: invoice.code,
+            source: 'SALE',
+            deltaKg: -takeKg,
+            deltaCon: -takeCon,
+            afterKg: bucket.qtyRemKg,
+            afterCon: bucket.qtyRemCon,
+            note: `Xuất bán ${invoice.partnerName} (${invoice.code})`,
+          });
+        });
+
+        if (remainingKg > 0) {
+          const fallbackProduct = products.find(p => p.id === line.productId);
+          const fallbackCost = targetGender === 'MALE'
+            ? (Number(fallbackProduct?.costMale) || 0)
+            : (Number(fallbackProduct?.costFemale) || 0);
+          if (fallbackCost > 0) {
+            invoiceCogs += remainingKg * fallbackCost;
+          }
+        }
+      });
+
+      cogsByInvoice[invoice.id] = invoiceCogs;
     });
 
     return { batches: Array.from(groupedByType.values()), cogsByInvoice, saleMovements };
