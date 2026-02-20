@@ -219,8 +219,11 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
   const [tareMode, setTareMode] = useState<'BY_CAGE' | 'BY_WEIGHT'>('BY_CAGE');
   const [currentWeightInput, setCurrentWeightInput] = useState('');
   const [currentTareInput, setCurrentTareInput] = useState('');
-  const [currentCageInput, setCurrentCageInput] = useState('');
+  const [currentCageInput, setCurrentCageInput] = useState('2');
   const [currentCountInput, setCurrentCountInput] = useState('');
+  const [isKeypadOpen, setIsKeypadOpen] = useState(false);
+  const [keypadTarget, setKeypadTarget] = useState<'WEIGHT' | 'COUNT' | null>(null);
+  const [keypadExpression, setKeypadExpression] = useState('');
   const [priceMale, setPriceMale] = useState('');
   const [priceFemale, setPriceFemale] = useState('');
   const [lastTicketKey, setLastTicketKey] = useState<string | null>(null);
@@ -234,8 +237,70 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
   const [prodName, setProdName] = useState('');
   const [prodPrice, setProdPrice] = useState('');
 
-  const weightInputRef = useRef<HTMLInputElement>(null);
   const [gender, setGender] = useState<Gender>('MALE');
+
+  const evaluateMathExpression = (expression: string): number => {
+    const sanitized = (expression || '').replace(/\s+/g, '');
+    if (!sanitized) return NaN;
+    if (!/^[0-9+\-*/().]+$/.test(sanitized)) return NaN;
+    try {
+      const result = Function(`"use strict"; return (${sanitized});`)();
+      return Number(result);
+    } catch {
+      return NaN;
+    }
+  };
+
+  const formatWeightValue = (value: number) => {
+    const fixed = value.toFixed(3);
+    return fixed.replace(/\.0+$/, '').replace(/(\.\d*[1-9])0+$/, '$1');
+  };
+
+  const openKeypad = (target: 'WEIGHT' | 'COUNT') => {
+    setKeypadTarget(target);
+    setKeypadExpression(target === 'WEIGHT' ? currentWeightInput : currentCountInput);
+    setIsKeypadOpen(true);
+  };
+
+  const appendKeypadToken = (token: string) => {
+    setKeypadExpression(prev => {
+      if (keypadTarget === 'COUNT' && token === '.') return prev;
+      return `${prev}${token}`;
+    });
+  };
+
+  const handleKeypadBackspace = () => {
+    setKeypadExpression(prev => prev.slice(0, -1));
+  };
+
+  const handleKeypadEqual = () => {
+    const value = evaluateMathExpression(keypadExpression);
+    if (!Number.isFinite(value)) {
+      alert('Biểu thức không hợp lệ');
+      return;
+    }
+    if ((keypadTarget || 'WEIGHT') === 'COUNT') {
+      setKeypadExpression(String(Math.max(0, Math.round(value))));
+      return;
+    }
+    setKeypadExpression(formatWeightValue(Math.max(0, value)));
+  };
+
+  const handleKeypadApply = () => {
+    const value = evaluateMathExpression(keypadExpression);
+    if (!Number.isFinite(value)) {
+      alert('Biểu thức không hợp lệ');
+      return;
+    }
+
+    if (keypadTarget === 'COUNT') {
+      setCurrentCountInput(String(Math.max(0, Math.round(value))));
+    } else {
+      setCurrentWeightInput(formatWeightValue(Math.max(0, value)));
+    }
+
+    setIsKeypadOpen(false);
+  };
 
   const loadSuppliers = () => {
     const list = db.getPartners(PartnerType.SUPPLIER);
@@ -325,7 +390,7 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
     if (tareMode === 'BY_CAGE') {
       if (detailGrossWeight <= 0) {
         alert("Vui lòng nhập khối lượng (kg)!");
-        weightInputRef.current?.focus();
+        openKeypad('WEIGHT');
         return;
       }
       if (detailNetWeight <= 0) return alert("Khối lượng thực bằng 0 hoặc âm!");
@@ -416,10 +481,9 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
 
     setCurrentWeightInput('');
     setCurrentTareInput('');
-    setCurrentCageInput('');
+    setCurrentCageInput('2');
     setCurrentCountInput('');
     saveLastDefaults();
-    weightInputRef.current?.focus();
   };
 
   const handleRemoveTicketItem = (idx: number) => {
@@ -592,7 +656,13 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
           <div className="flex gap-2 mb-3 items-end">
             <div className="flex-[2]">
               <label className="text-[10px] text-gray-500 font-bold ml-1">KHỐI LƯỢNG (KG)</label>
-              <input ref={weightInputRef} type="number" placeholder="0.0" className="w-full px-2 py-2 text-lg font-bold text-gray-800 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none" value={currentWeightInput} onChange={e => setCurrentWeightInput(e.target.value)} />
+              <button
+                type="button"
+                onClick={() => openKeypad('WEIGHT')}
+                className="w-full px-2 py-2 text-lg font-bold text-left text-gray-800 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none"
+              >
+                {currentWeightInput || '0.0'}
+              </button>
             </div>
             {tareMode === 'BY_CAGE' ? (
               <div className="flex-1">
@@ -607,7 +677,13 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
             )}
             <div className="flex-1">
               <label className="text-[10px] text-gray-500 font-bold ml-1">CON</label>
-              <input type="number" placeholder="0" className="w-full px-2 py-2 text-lg font-bold text-center text-gray-800 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none" value={currentCountInput} onChange={e => setCurrentCountInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleAddItemToTicket(); }} />
+              <button
+                type="button"
+                onClick={() => openKeypad('COUNT')}
+                className="w-full px-2 py-2 text-lg font-bold text-center text-gray-800 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none"
+              >
+                {currentCountInput || '0'}
+              </button>
             </div>
           </div>
 
@@ -734,6 +810,41 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
           <Input label="Tên loại gà" value={prodName} onChange={(e:any) => setProdName(e.target.value)} placeholder="VD: Gà Ri..." />
           <Input label="Giá bán mặc định (nghìn VND/kg)" value={prodPrice} onChange={(e:any) => setProdPrice(e.target.value)} type="number" />
           <Button className="w-full" onClick={handleSaveProduct}>Lưu Thông Tin</Button>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={isKeypadOpen}
+        onClose={() => setIsKeypadOpen(false)}
+        title={keypadTarget === 'COUNT' ? 'Nhập số con' : 'Nhập khối lượng (kg)'}
+      >
+        <div className="space-y-3">
+          <div className="w-full min-h-[56px] px-4 py-3 bg-slate-900 text-white rounded-lg text-3xl font-black tracking-wide text-right break-all">
+            {keypadExpression || '0'}
+          </div>
+
+          <div className="grid grid-cols-4 gap-2">
+            {['7', '8', '9', '/','4', '5', '6', '*','1', '2', '3', '-','0', '.', '(', ')'].map((token) => (
+              <button
+                key={token}
+                type="button"
+                onClick={() => appendKeypadToken(token)}
+                className={`h-14 rounded-lg border font-black text-2xl ${token === '.' && keypadTarget === 'COUNT' ? 'opacity-30 cursor-not-allowed bg-gray-100 text-gray-400 border-gray-200' : 'bg-white text-gray-800 border-gray-300 active:bg-brand-50'}`}
+                disabled={token === '.' && keypadTarget === 'COUNT'}
+              >
+                {token === '*' ? '×' : token}
+              </button>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-4 gap-2">
+            <button type="button" onClick={handleKeypadBackspace} className="h-14 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 font-black text-xl active:bg-amber-100">⌫</button>
+            <button type="button" onClick={() => setKeypadExpression('')} className="h-14 rounded-lg border border-gray-300 bg-gray-100 text-gray-700 font-black text-xl active:bg-gray-200">C</button>
+            <button type="button" onClick={handleKeypadEqual} className="h-14 rounded-lg border border-brand-200 bg-brand-50 text-brand-700 font-black text-2xl active:bg-brand-100">=</button>
+            <button type="button" onClick={() => appendKeypadToken('+')} className="h-14 rounded-lg border border-gray-300 bg-white text-gray-800 font-black text-2xl active:bg-brand-50">+</button>
+          </div>
+
+          <Button className="w-full py-3 text-lg" onClick={handleKeypadApply}>Xong</Button>
         </div>
       </Modal>
     </div>
