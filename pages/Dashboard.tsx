@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { db } from '../services/db';
 import { DashboardStats, PartnerType, PreOrder, Unit, PaymentMethod, BankSettings } from '../types';
-import { aiService, GeminiModel } from '../services/ai';
+import { aiService, GeminiModel, type ExtractedPreOrderData } from '../services/ai';
 import { formatCurrency, ICONS } from '../constants';
 import { StatCard, Button, Card, Input, Select, Modal } from '../components/ui';
 
@@ -41,6 +41,12 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
   const [isAwaitingApiKeyInput, setIsAwaitingApiKeyInput] = useState(false);
   const [isAiShortcutMenuOpen, setIsAiShortcutMenuOpen] = useState(false);
   const aiMessagesRef = useRef<HTMLDivElement | null>(null);
+  const captureOrderImageRef = useRef<HTMLInputElement | null>(null);
+  const uploadOrderImageRef = useRef<HTMLInputElement | null>(null);
+  const [isExtractingOrderImage, setIsExtractingOrderImage] = useState(false);
+  const [isAiOrderReviewOpen, setIsAiOrderReviewOpen] = useState(false);
+  const [aiOrderDraft, setAiOrderDraft] = useState<ExtractedPreOrderData | null>(null);
+  const [aiOrderSourceName, setAiOrderSourceName] = useState('');
 
   const customerOptions = db.getPartners(PartnerType.CUSTOMER);
   const productOptions = db.getProducts();
@@ -273,6 +279,104 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
   const handleSaveCurrentProductQuick = () => {
     if (!poProduct.trim()) return alert('Vui lòng nhập tên hàng hoá trước khi thêm.');
     db.saveQuickItem(poProduct.trim());
+  };
+
+  const toDateTimeLocalValue = (isoText: string) => {
+    const parsed = new Date(isoText || '');
+    if (isNaN(parsed.getTime())) return '';
+    const local = new Date(parsed.getTime() - parsed.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 16);
+  };
+
+  const priceToInputThousand = (priceVnd: number) => {
+    const thousand = (Number(priceVnd) || 0) / 1000;
+    if (thousand <= 0) return '';
+    return thousand.toFixed(3).replace(/\.0+$/, '').replace(/(\.\d*[1-9])0+$/, '$1');
+  };
+
+  const applyAiOrderDraftToForm = (draft: ExtractedPreOrderData) => {
+    setPoName(draft.customerName || '');
+    setPoPhone(draft.phone || '');
+    setPoProduct(draft.productNote || '');
+    setPoCon(String(Number(draft.qtyCon) || 0));
+    setPoKg(draft.qtyKg > 0 ? String(Number(draft.qtyKg) || 0) : '');
+    setPoPrice(priceToInputThousand(draft.unitPrice || 0));
+    setPoTime(draft.deliveryTime ? toDateTimeLocalValue(draft.deliveryTime) : poTime);
+    setPoNote(draft.note || '');
+    if (draft.customerName || draft.phone) {
+      db.saveQuickCustomer((draft.customerName || '').trim(), (draft.phone || '').trim());
+      setQuickCustomerOptions(db.getQuickCustomers());
+    }
+    if (draft.productNote) {
+      db.saveQuickItem((draft.productNote || '').trim());
+    }
+  };
+
+  const fileToBase64 = (file: File) => {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = String(reader.result || '');
+        const base64 = result.includes(',') ? result.split(',')[1] : result;
+        if (!base64) {
+          reject(new Error('Không đọc được dữ liệu ảnh.'));
+          return;
+        }
+        resolve(base64);
+      };
+      reader.onerror = () => reject(new Error('Không thể đọc file ảnh.'));
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleOpenOrderCamera = () => {
+    captureOrderImageRef.current?.click();
+  };
+
+  const handleOpenOrderUpload = () => {
+    uploadOrderImageRef.current?.click();
+  };
+
+  const handleAiOrderImageSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    setIsExtractingOrderImage(true);
+    setAiOrderSourceName(file.name || 'Ảnh đơn hàng');
+    try {
+      const base64 = await fileToBase64(file);
+      const result = await aiService.extractPreOrderFromImage(base64, file.type || 'image/jpeg', aiModel);
+
+      if (result.switchedModel && result.usedModel !== aiModel) {
+        setAiModel(result.usedModel);
+      }
+
+      if (!result.data) {
+        alert(`Không thể đọc dữ liệu từ ảnh. ${result.reason ? `Lý do: ${result.reason}` : ''}`.trim());
+        return;
+      }
+
+      setAiOrderDraft(result.data);
+      setIsAiOrderReviewOpen(true);
+    } catch (e: any) {
+      alert(e?.message || 'Không thể xử lý ảnh đơn hàng.');
+    } finally {
+      setIsExtractingOrderImage(false);
+    }
+  };
+
+  const updateAiOrderDraftField = (field: keyof ExtractedPreOrderData, value: any) => {
+    setAiOrderDraft(prev => {
+      if (!prev) return prev;
+      return { ...prev, [field]: value };
+    });
+  };
+
+  const handleApplyAiOrderDraft = () => {
+    if (!aiOrderDraft) return;
+    applyAiOrderDraftToForm(aiOrderDraft);
+    setIsAiOrderReviewOpen(false);
   };
 
   const handleDeliverSuccess = async () => {
@@ -666,6 +770,44 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
 
       <Modal isOpen={isOrderModalOpen} onClose={() => setIsOrderModalOpen(false)} title={selectedOrder ? 'Chi tiết đặt hàng' : 'Thêm đơn đặt hàng'}>
         <div className="space-y-4">
+          <div className="border border-brand-100 rounded-lg p-3 bg-brand-50/50">
+            <div className="text-xs font-bold text-brand-700 mb-2">AI nhập đơn từ ảnh</div>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={handleOpenOrderCamera}
+                disabled={isExtractingOrderImage}
+                className="py-2 text-xs font-bold rounded border border-brand-600 bg-brand-600 text-white disabled:bg-gray-200 disabled:text-gray-500 disabled:border-gray-300"
+              >
+                {isExtractingOrderImage ? 'Đang đọc...' : '📷 Chụp ảnh'}
+              </button>
+              <button
+                type="button"
+                onClick={handleOpenOrderUpload}
+                disabled={isExtractingOrderImage}
+                className="py-2 text-xs font-bold rounded border border-brand-600 bg-white text-brand-700 disabled:bg-gray-200 disabled:text-gray-500 disabled:border-gray-300"
+              >
+                Tải ảnh lên
+              </button>
+            </div>
+            <div className="text-[11px] text-gray-600 mt-2">AI sẽ phân tích và hiển thị bảng xác nhận trước khi cập nhật form.</div>
+            <input
+              ref={captureOrderImageRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={handleAiOrderImageSelected}
+            />
+            <input
+              ref={uploadOrderImageRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleAiOrderImageSelected}
+            />
+          </div>
+
           <div>
             <label className="text-sm font-bold text-gray-700 mb-1 block">Tên khách hàng</label>
             <div className="flex gap-2">
@@ -829,6 +971,78 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
                 <Button className="flex-1" onClick={handleSaveOrder}>Lưu Sửa</Button>
               </>
             ) : <Button className="w-full" onClick={handleSaveOrder}>Lưu Đơn Đặt</Button>}
+          </div>
+        </div>
+      </Modal>
+
+      <Modal isOpen={isAiOrderReviewOpen} onClose={() => setIsAiOrderReviewOpen(false)} title="Xác nhận dữ liệu AI">
+        <div className="space-y-3">
+          <div className="text-xs text-gray-500">Nguồn ảnh: {aiOrderSourceName || 'Ảnh vừa chọn'}</div>
+          <Input
+            label="Khách hàng"
+            value={aiOrderDraft?.customerName || ''}
+            onChange={(e: any) => updateAiOrderDraftField('customerName', e.target.value)}
+          />
+          <Input
+            label="Số điện thoại"
+            type="tel"
+            value={aiOrderDraft?.phone || ''}
+            onChange={(e: any) => updateAiOrderDraftField('phone', e.target.value)}
+          />
+          <Input
+            label="Thời gian giao"
+            type="datetime-local"
+            value={toDateTimeLocalValue(aiOrderDraft?.deliveryTime || '')}
+            onChange={(e: any) => updateAiOrderDraftField('deliveryTime', e.target.value ? new Date(e.target.value).toISOString() : '')}
+          />
+          <Input
+            label="Loại gà / Hàng hoá"
+            value={aiOrderDraft?.productNote || ''}
+            onChange={(e: any) => updateAiOrderDraftField('productNote', e.target.value)}
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <Input
+              label="Số con"
+              type="number"
+              value={aiOrderDraft?.qtyCon ?? 0}
+              onChange={(e: any) => updateAiOrderDraftField('qtyCon', Math.max(0, Number(e.target.value) || 0))}
+            />
+            <Input
+              label="Số Kg"
+              type="number"
+              value={aiOrderDraft?.qtyKg ?? 0}
+              onChange={(e: any) => updateAiOrderDraftField('qtyKg', Math.max(0, Number(e.target.value) || 0))}
+            />
+          </div>
+          <Input
+            label="Đơn giá (VND)"
+            type="number"
+            value={aiOrderDraft?.unitPrice ?? 0}
+            onChange={(e: any) => updateAiOrderDraftField('unitPrice', Math.max(0, Number(e.target.value) || 0))}
+          />
+          <Input
+            label="Độ tin cậy (0-1)"
+            type="number"
+            value={aiOrderDraft?.confidence ?? 0}
+            onChange={(e: any) => updateAiOrderDraftField('confidence', Math.max(0, Math.min(1, Number(e.target.value) || 0)))}
+          />
+          <textarea
+            className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white"
+            value={aiOrderDraft?.note || ''}
+            onChange={(e) => updateAiOrderDraftField('note', e.target.value)}
+            placeholder="Ghi chú"
+          />
+          {Array.isArray(aiOrderDraft?.warnings) && aiOrderDraft!.warnings.length > 0 && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded p-2">
+              <div className="text-xs font-bold text-yellow-800 mb-1">Cảnh báo AI</div>
+              <ul className="text-xs text-yellow-700 list-disc pl-4 space-y-1">
+                {aiOrderDraft!.warnings.map((warning, idx) => <li key={`${warning}-${idx}`}>{warning}</li>)}
+              </ul>
+            </div>
+          )}
+          <div className="flex gap-2 pt-1">
+            <Button variant="secondary" className="flex-1" onClick={() => setIsAiOrderReviewOpen(false)}>Đóng</Button>
+            <Button className="flex-1" onClick={handleApplyAiOrderDraft}>Cập nhật vào form</Button>
           </div>
         </div>
       </Modal>

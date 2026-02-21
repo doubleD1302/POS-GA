@@ -57,6 +57,28 @@ export type GeminiHealthResult = {
   message: string;
 };
 
+export type ExtractedPreOrderData = {
+  customerName: string;
+  phone: string;
+  deliveryTime: string;
+  productNote: string;
+  qtyCon: number;
+  qtyKg: number;
+  unitPrice: number;
+  note: string;
+  confidence: number;
+  warnings: string[];
+  rawText?: string;
+};
+
+export type ExtractPreOrderResult = {
+  data: ExtractedPreOrderData | null;
+  usedModel: GeminiModel;
+  switchedModel: boolean;
+  source: 'gemini' | 'fallback';
+  reason?: string;
+};
+
 const roundToThousand = (value: number) => Math.max(0, Math.round(value / 1000) * 1000);
 
 const safeNumber = (value: any) => Number(value || 0);
@@ -153,6 +175,39 @@ const summarizeFallbackReason = (message: string) => {
   if (m.includes('failed to fetch') || m.includes('network') || m.includes('cors')) return 'Mất kết nối mạng hoặc bị chặn truy cập Gemini';
   return 'Lỗi tạm thời từ Gemini API';
 };
+
+const extractJsonFromText = (text: string): string | null => {
+  const raw = String(text || '').trim();
+  if (!raw) return null;
+
+  const fenced = raw.match(/```json\s*([\s\S]*?)```/i) || raw.match(/```\s*([\s\S]*?)```/i);
+  if (fenced && fenced[1]) return fenced[1].trim();
+
+  const first = raw.indexOf('{');
+  const last = raw.lastIndexOf('}');
+  if (first >= 0 && last > first) return raw.slice(first, last + 1).trim();
+
+  return null;
+};
+
+const normalizeDateTime = (value: any): string => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+
+  const direct = new Date(raw);
+  if (!isNaN(direct.getTime())) return direct.toISOString();
+
+  const normalized = raw
+    .replace(/(\d{1,2})[\/.](\d{1,2})[\/.](\d{2,4})/, '$3-$2-$1')
+    .replace(/\s+/, 'T');
+
+  const parsed = new Date(normalized);
+  if (!isNaN(parsed.getTime())) return parsed.toISOString();
+
+  return '';
+};
+
+const clamp01 = (value: number) => Math.max(0, Math.min(1, Number(value) || 0));
 
 export const aiService = {
   getGeminiModels(): GeminiModel[] {
@@ -352,6 +407,133 @@ export const aiService = {
       switchedModel: false,
       source: 'fallback',
       reason: 'Hết quota hoặc giới hạn token',
+    };
+  },
+
+  async extractPreOrderFromImage(imageBase64: string, mimeType: string, selectedModel: GeminiModel): Promise<ExtractPreOrderResult> {
+    const apiKey = getGeminiApiKey();
+    if (!apiKey) {
+      return {
+        data: null,
+        usedModel: selectedModel,
+        switchedModel: false,
+        source: 'fallback',
+        reason: 'Thiếu GEMINI_API_KEY',
+      };
+    }
+
+    const models = this.getGeminiModels();
+    const startIndex = Math.max(0, models.indexOf(selectedModel));
+    const modelQueue = [...models.slice(startIndex), ...models.slice(0, startIndex)];
+    const safeMimeType = (mimeType || '').startsWith('image/') ? mimeType : 'image/jpeg';
+
+    const prompt = [
+      'Bạn là AI OCR cho cửa hàng gà.',
+      'Đọc chữ trong ảnh chụp đơn đặt hàng và trả về JSON hợp lệ duy nhất, không thêm markdown hay giải thích.',
+      'Schema JSON bắt buộc:',
+      '{',
+      '  "customerName": string,',
+      '  "phone": string,',
+      '  "deliveryTime": string,',
+      '  "productNote": string,',
+      '  "qtyCon": number,',
+      '  "qtyKg": number,',
+      '  "unitPrice": number,',
+      '  "note": string,',
+      '  "confidence": number,',
+      '  "warnings": string[]',
+      '}',
+      'Quy tắc:',
+      '- unitPrice là VND (không phải nghìn). Ví dụ 95k thì trả về 95000.',
+      '- qtyCon và qtyKg nếu không chắc thì trả về 0.',
+      '- deliveryTime ưu tiên ISO 8601, nếu không rõ thì để chuỗi rỗng.',
+      '- warnings liệt kê các trường thiếu/không chắc chắn.',
+      '- confidence trong khoảng 0 đến 1.',
+      '- Nếu không đọc được nhiều, vẫn trả về đúng schema với dữ liệu rỗng hợp lý.'
+    ].join('\n');
+
+    for (let idx = 0; idx < modelQueue.length; idx++) {
+      const model = modelQueue[idx];
+      try {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{
+              role: 'user',
+              parts: [
+                { text: prompt },
+                { inline_data: { mime_type: safeMimeType, data: imageBase64 } }
+              ]
+            }],
+            generationConfig: {
+              temperature: 0.1,
+              topP: 0.9,
+              maxOutputTokens: 1200,
+            },
+          }),
+        });
+
+        if (!res.ok) {
+          const errorText = await res.text();
+          throw new Error(errorText || `Gemini error ${res.status}`);
+        }
+
+        const data = await res.json();
+        const candidate = data?.candidates?.[0];
+        const text = (candidate?.content?.parts || [])
+          .map((part: any) => part?.text || '')
+          .join('')
+          .trim();
+
+        const jsonText = extractJsonFromText(text);
+        if (!jsonText) {
+          throw new Error('Không tìm thấy JSON hợp lệ trong phản hồi OCR.');
+        }
+
+        const parsed = JSON.parse(jsonText || '{}');
+        const normalized: ExtractedPreOrderData = {
+          customerName: String(parsed?.customerName || '').trim(),
+          phone: String(parsed?.phone || '').trim(),
+          deliveryTime: normalizeDateTime(parsed?.deliveryTime),
+          productNote: String(parsed?.productNote || '').trim(),
+          qtyCon: Math.max(0, Number(parsed?.qtyCon) || 0),
+          qtyKg: Math.max(0, Number(parsed?.qtyKg) || 0),
+          unitPrice: roundToThousand(Number(parsed?.unitPrice) || 0),
+          note: String(parsed?.note || '').trim(),
+          confidence: clamp01(Number(parsed?.confidence) || 0),
+          warnings: Array.isArray(parsed?.warnings) ? parsed.warnings.map((w: any) => String(w || '').trim()).filter(Boolean) : [],
+          rawText: text,
+        };
+
+        return {
+          data: normalized,
+          usedModel: model,
+          switchedModel: model !== selectedModel,
+          source: 'gemini',
+        };
+      } catch (error: any) {
+        const message = String(error?.message || error || '');
+        if ((isTokenOrQuotaError(429, message) || isRecoverableModelError(400, message)) && idx < modelQueue.length - 1) {
+          continue;
+        }
+
+        return {
+          data: null,
+          usedModel: selectedModel,
+          switchedModel: false,
+          source: 'fallback',
+          reason: summarizeFallbackReason(message),
+        };
+      }
+    }
+
+    return {
+      data: null,
+      usedModel: selectedModel,
+      switchedModel: false,
+      source: 'fallback',
+      reason: 'Không có model Gemini khả dụng để đọc ảnh.',
     };
   },
 
