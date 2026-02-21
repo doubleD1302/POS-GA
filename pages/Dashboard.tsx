@@ -312,21 +312,90 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
     }
   };
 
-  const fileToBase64 = (file: File) => {
+  const blobToDataUrl = (blob: Blob) => {
     return new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = () => {
-        const result = String(reader.result || '');
-        const base64 = result.includes(',') ? result.split(',')[1] : result;
-        if (!base64) {
-          reject(new Error('Không đọc được dữ liệu ảnh.'));
-          return;
-        }
-        resolve(base64);
-      };
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(new Error('Không thể chuyển ảnh sang dữ liệu base64.'));
+      reader.readAsDataURL(blob);
+    });
+  };
+
+  const fileToDataUrl = (file: File) => {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
       reader.onerror = () => reject(new Error('Không thể đọc file ảnh.'));
       reader.readAsDataURL(file);
     });
+  };
+
+  const loadImageElement = (src: string) => {
+    return new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error('Không thể giải mã ảnh để nén.'));
+      img.src = src;
+    });
+  };
+
+  const canvasToBlob = (canvas: HTMLCanvasElement, mimeType: string, quality: number) => {
+    return new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          reject(new Error('Không thể tạo ảnh nén.'));
+          return;
+        }
+        resolve(blob);
+      }, mimeType, quality);
+    });
+  };
+
+  const compressImageForAi = async (file: File) => {
+    const sourceDataUrl = await fileToDataUrl(file);
+    const img = await loadImageElement(sourceDataUrl);
+
+    const maxDimension = 1600;
+    const targetMaxBytes = 900 * 1024;
+
+    const scale = Math.min(1, maxDimension / Math.max(img.width, img.height));
+    const width = Math.max(1, Math.round(img.width * scale));
+    const height = Math.max(1, Math.round(img.height * scale));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+
+    const context = canvas.getContext('2d');
+    if (!context) {
+      throw new Error('Trình duyệt không hỗ trợ canvas để nén ảnh.');
+    }
+
+    context.drawImage(img, 0, 0, width, height);
+
+    const qualities = [0.85, 0.75, 0.65, 0.55];
+    let chosenBlob: Blob | null = null;
+
+    for (const quality of qualities) {
+      const blob = await canvasToBlob(canvas, 'image/jpeg', quality);
+      chosenBlob = blob;
+      if (blob.size <= targetMaxBytes) break;
+    }
+
+    const finalBlob = chosenBlob || await canvasToBlob(canvas, 'image/jpeg', 0.6);
+    const dataUrl = await blobToDataUrl(finalBlob);
+    const base64 = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
+
+    if (!base64) {
+      throw new Error('Không thể đọc dữ liệu ảnh nén.');
+    }
+
+    return {
+      base64,
+      mimeType: 'image/jpeg',
+      originalSize: file.size,
+      compressedSize: finalBlob.size,
+    };
   };
 
   const handleOpenOrderCamera = () => {
@@ -345,8 +414,10 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
     setIsExtractingOrderImage(true);
     setAiOrderSourceName(file.name || 'Ảnh đơn hàng');
     try {
-      const base64 = await fileToBase64(file);
-      const result = await aiService.extractPreOrderFromImage(base64, file.type || 'image/jpeg', aiModel);
+      const compressed = await compressImageForAi(file);
+      const result = await aiService.extractPreOrderFromImage(compressed.base64, compressed.mimeType, aiModel);
+
+      setAiOrderSourceName(`${file.name || 'Ảnh đơn hàng'} (${Math.round(compressed.originalSize / 1024)}KB → ${Math.round(compressed.compressedSize / 1024)}KB)`);
 
       if (result.switchedModel && result.usedModel !== aiModel) {
         setAiModel(result.usedModel);
