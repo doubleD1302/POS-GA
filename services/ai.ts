@@ -4,7 +4,6 @@ import { formatCurrency } from '../constants';
 
 export const GEMINI_MODELS = [
   'gemini-2.0-flash',
-  'gemini-2.0-flash-lite',
 ] as const;
 
 export type GeminiModel = typeof GEMINI_MODELS[number];
