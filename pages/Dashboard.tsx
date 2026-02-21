@@ -37,7 +37,7 @@ export default function Dashboard({ navigate, onLogout }: { navigate: (page: str
     { role: 'ai', text: 'Xin chào! Mình có thể gợi ý giá bán, phát hiện nhập liệu bất thường và trả lời nhanh theo dữ liệu nội bộ.' }
   ]);
   const [isAskingAi, setIsAskingAi] = useState(false);
-  const [aiModel, setAiModel] = useState<GeminiModel>('gemini-2.5-flash');
+  const [aiModel, setAiModel] = useState<GeminiModel>('gemini-2.0-flash');
   const [isAwaitingApiKeyInput, setIsAwaitingApiKeyInput] = useState(false);
   const [isAiShortcutMenuOpen, setIsAiShortcutMenuOpen] = useState(false);
   const aiMessagesRef = useRef<HTMLDivElement | null>(null);
