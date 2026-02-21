@@ -426,6 +426,7 @@ export const aiService = {
     const startIndex = Math.max(0, models.indexOf(selectedModel));
     const modelQueue = [...models.slice(startIndex), ...models.slice(0, startIndex)];
     const safeMimeType = (mimeType || '').startsWith('image/') ? mimeType : 'image/jpeg';
+    const failureReasons: string[] = [];
 
     const prompt = [
       'Bạn là AI OCR cho cửa hàng gà.',
@@ -514,26 +515,19 @@ export const aiService = {
         };
       } catch (error: any) {
         const message = String(error?.message || error || '');
-        if ((isTokenOrQuotaError(429, message) || isRecoverableModelError(400, message)) && idx < modelQueue.length - 1) {
-          continue;
-        }
-
-        return {
-          data: null,
-          usedModel: selectedModel,
-          switchedModel: false,
-          source: 'fallback',
-          reason: summarizeFallbackReason(message),
-        };
+        failureReasons.push(`${model}: ${summarizeFallbackReason(message)}`);
+        if (idx < modelQueue.length - 1) continue;
       }
     }
 
     return {
       data: null,
-      usedModel: selectedModel,
-      switchedModel: false,
+      usedModel: modelQueue[modelQueue.length - 1] || selectedModel,
+      switchedModel: (modelQueue[modelQueue.length - 1] || selectedModel) !== selectedModel,
       source: 'fallback',
-      reason: 'Không có model Gemini khả dụng để đọc ảnh.',
+      reason: failureReasons.length > 0
+        ? `Tất cả model đều lỗi: ${failureReasons.join(' | ')}`
+        : 'Không có model Gemini khả dụng để đọc ảnh.',
     };
   },
 
