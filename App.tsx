@@ -359,7 +359,7 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
 
           <div className="mt-3 pt-2 border-t border-slate-700 flex items-center justify-between gap-2">
             <span className="text-xs uppercase tracking-wider text-slate-300 font-bold">KẾT QUẢ</span>
-            <span className="text-2xl font-black text-white break-all text-right">{runningTotalText}</span>
+            <span className="text-2xl font-black text-amber-300 break-all text-right">{runningTotalText}</span>
           </div>
         </div>
 
