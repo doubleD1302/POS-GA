@@ -199,14 +199,16 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
   isOpen,
   target,
   initialExpression,
+  initialLines,
   onClose,
   onApply,
 }: {
   isOpen: boolean;
   target: KeypadTarget;
   initialExpression: string;
+  initialLines?: OperationLine[] | null;
   onClose: () => void;
-  onApply: (target: KeypadTarget, value: string) => void;
+  onApply: (target: KeypadTarget, value: string, lines: OperationLine[]) => void;
 }) {
   const [lines, setLines] = useState<OperationLine[]>([{ operator: '', value: '' }]);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -215,10 +217,13 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
 
   useEffect(() => {
     if (!isOpen) return;
-    const initialLines = buildInitialOperationLines(initialExpression);
-    setLines(initialLines);
-    setActiveIndex(Math.max(0, initialLines.length - 1));
-  }, [isOpen, initialExpression, target]);
+    const safeInitialLines = Array.isArray(initialLines) && initialLines.length > 0
+      ? initialLines.map(line => ({ ...line }))
+      : buildInitialOperationLines(initialExpression);
+
+    setLines(safeInitialLines);
+    setActiveIndex(Math.max(0, safeInitialLines.length - 1));
+  }, [isOpen, initialExpression, initialLines, target]);
 
   const appendToken = useCallback((token: string) => {
     setLines(prev => {
@@ -311,12 +316,12 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
     }
 
     if (target === 'COUNT') {
-      onApply(target, String(Math.max(0, Math.round(runningTotal))));
+      onApply(target, String(Math.max(0, Math.round(runningTotal))), lines.map(line => ({ ...line })));
       return;
     }
 
-    onApply(target, formatWeightValue(Math.max(0, runningTotal)));
-  }, [onApply, runningTotal, target]);
+    onApply(target, formatWeightValue(Math.max(0, runningTotal)), lines.map(line => ({ ...line })));
+  }, [lines, onApply, runningTotal, target]);
 
   const handleClearAll = useCallback(() => {
     setLines([{ operator: '', value: '' }]);
@@ -525,6 +530,8 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
   const [currentTareInput, setCurrentTareInput] = useState('');
   const [currentCageInput, setCurrentCageInput] = useState('2');
   const [currentCountInput, setCurrentCountInput] = useState('');
+  const [currentWeightKeypadLines, setCurrentWeightKeypadLines] = useState<OperationLine[] | null>(null);
+  const [currentCountKeypadLines, setCurrentCountKeypadLines] = useState<OperationLine[] | null>(null);
   const [debtDeductPercent, setDebtDeductPercent] = useState('2');
   const [isKeypadOpen, setIsKeypadOpen] = useState(false);
   const [keypadTarget, setKeypadTarget] = useState<KeypadTarget>('WEIGHT');
@@ -593,11 +600,13 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
     setIsKeypadOpen(true);
   };
 
-  const handleKeypadApply = useCallback((target: KeypadTarget, value: string) => {
+  const handleKeypadApply = useCallback((target: KeypadTarget, value: string, lines: OperationLine[]) => {
     if (target === 'COUNT') {
       setCurrentCountInput(value);
+      setCurrentCountKeypadLines(lines);
     } else {
       setCurrentWeightInput(value);
+      setCurrentWeightKeypadLines(lines);
     }
     setIsKeypadOpen(false);
   }, []);
@@ -905,9 +914,11 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
     setLastTicketKey(newItemKey);
 
     setCurrentWeightInput('');
+    setCurrentWeightKeypadLines(null);
     setCurrentTareInput('');
     setCurrentCageInput('2');
     setCurrentCountInput('');
+    setCurrentCountKeypadLines(null);
     saveLastDefaults();
   };
 
@@ -1350,6 +1361,7 @@ function ImportPage({ navigate }: { navigate: (p: string) => void }) {
         isOpen={isKeypadOpen}
         target={keypadTarget}
         initialExpression={keypadInitialValue}
+        initialLines={keypadTarget === 'WEIGHT' ? currentWeightKeypadLines : currentCountKeypadLines}
         onClose={() => setIsKeypadOpen(false)}
         onApply={handleKeypadApply}
       />
