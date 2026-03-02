@@ -366,17 +366,20 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
 
       const oscillator = ctx.createOscillator();
       const gainNode = ctx.createGain();
-      oscillator.type = 'sine';
-      oscillator.frequency.value = 880;
+      const now = ctx.currentTime;
 
-      gainNode.gain.setValueAtTime(0.0001, ctx.currentTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.03, ctx.currentTime + 0.003);
-      gainNode.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.05);
+      oscillator.type = 'triangle';
+      oscillator.frequency.setValueAtTime(1450, now);
+      oscillator.frequency.exponentialRampToValueAtTime(950, now + 0.035);
+
+      gainNode.gain.setValueAtTime(0.0001, now);
+      gainNode.gain.exponentialRampToValueAtTime(0.018, now + 0.002);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, now + 0.04);
 
       oscillator.connect(gainNode);
       gainNode.connect(ctx.destination);
-      oscillator.start(ctx.currentTime);
-      oscillator.stop(ctx.currentTime + 0.05);
+      oscillator.start(now);
+      oscillator.stop(now + 0.04);
     } catch {
     }
   }, []);
