@@ -334,10 +334,12 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
       return;
     }
 
-    const confirmed = window.confirm('Bạn chưa bấm "Xong" để lưu. Nếu thoát ngay bây giờ, toàn bộ dữ liệu vừa nhập sẽ bị mất. Bạn có chắc muốn thoát không?');
-    if (confirmed) {
-      onClose();
-    }
+    setTimeout(() => {
+      const confirmed = window.confirm('Bạn chưa bấm "Xong" để lưu. Nếu thoát ngay bây giờ, toàn bộ dữ liệu vừa nhập sẽ bị mất. Bạn có chắc muốn thoát không?');
+      if (confirmed) {
+        onClose();
+      }
+    }, 50);
   }, [hasUnsavedChanges, onClose]);
 
   const handleClearAll = useCallback(() => {
