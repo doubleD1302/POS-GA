@@ -147,8 +147,8 @@ const formatWeightValue = (value: number) => {
 const KEYPAD_TOKENS = ['7', '8', '9', '/', '4', '5', '6', '*', '1', '2', '3', '-', '0', '.', '(', ')'];
 const OPERATOR_TOKENS: OperationOperator[] = ['+', '-', '*', '/'];
 
-const isOperationOperator = (token: string): token is Exclude<OperationOperator, ''> => {
-  return token === '+' || token === '-' || token === '*' || token === '/';
+const isOperationOperator = (token: string): token is '+' => {
+  return token === '+';
 };
 
 const buildInitialOperationLines = (initialExpression: string): OperationLine[] => {
@@ -159,30 +159,24 @@ const buildInitialOperationLines = (initialExpression: string): OperationLine[] 
     return [{ operator: '', value: sanitized }];
   }
 
-  const parts = sanitized.split(/([+\-*/])/).filter(Boolean);
+  const parts = sanitized.split(/(\+)/).filter(Boolean);
   if (parts.length === 0) return [{ operator: '', value: sanitized }];
 
   const lines: OperationLine[] = [];
   let pendingOperator: OperationOperator = '';
-  let pendingPrefix = '';
 
   for (const part of parts) {
     if (isOperationOperator(part)) {
-      if (lines.length === 0 && (part === '-' || part === '+')) {
-        pendingPrefix = part;
-      } else {
-        pendingOperator = part;
-      }
+      pendingOperator = part;
       continue;
     }
 
-    const value = `${pendingPrefix}${part}`;
+    const value = part;
     lines.push({
       operator: lines.length === 0 ? '' : (pendingOperator || '+'),
       value,
     });
     pendingOperator = '';
-    pendingPrefix = '';
   }
 
   if (lines.length === 0) return [{ operator: '', value: sanitized }];
@@ -240,24 +234,14 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
     });
   }, [activeIndex, target]);
 
-  const handleOperator = useCallback((operator: Exclude<OperationOperator, ''>) => {
+  const handleOperator = useCallback((operator: '+') => {
     shouldAutoScrollRef.current = true;
     setLines(prev => {
       const safeIndex = Math.min(Math.max(activeIndex, 0), Math.max(prev.length - 1, 0));
       const next = [...prev];
       const current = next[safeIndex] || { operator: safeIndex === 0 ? '' : '+', value: '' };
 
-      if (safeIndex === 0 && current.value === '' && operator === '-') {
-        next[safeIndex] = { ...current, value: '-' };
-        return next;
-      }
-
       if (safeIndex === next.length - 1) {
-        if (current.value === '' && safeIndex > 0) {
-          next[safeIndex] = { ...current, operator };
-          return next;
-        }
-
         next.push({ operator, value: '' });
         setActiveIndex(next.length - 1);
         return next;
