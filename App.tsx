@@ -342,7 +342,7 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
   }, [hasUnsavedChanges, onClose]);
 
   const handleClearAll = useCallback(() => {
-    const confirmed = window.confirm('Nút C sẽ xoá hết toàn bộ dữ liệu đã nhập trên bàn phím ảo. Bạn có chắc muốn xoá không?');
+    const confirmed = window.confirm('Nút C sẽ xoá hết toàn bộ dữ liệu đã nhập trên máy tính. Bạn có chắc muốn xoá không?');
     if (!confirmed) return;
 
     setLines([{ operator: '', value: '' }]);
