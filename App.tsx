@@ -216,6 +216,8 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
 }) {
   const [lines, setLines] = useState<OperationLine[]>([{ operator: '', value: '' }]);
   const [activeIndex, setActiveIndex] = useState(0);
+  const historyContainerRef = useRef<HTMLDivElement | null>(null);
+  const shouldAutoScrollRef = useRef(false);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -239,6 +241,7 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
   }, [activeIndex, target]);
 
   const handleOperator = useCallback((operator: Exclude<OperationOperator, ''>) => {
+    shouldAutoScrollRef.current = true;
     setLines(prev => {
       const safeIndex = Math.min(Math.max(activeIndex, 0), Math.max(prev.length - 1, 0));
       const next = [...prev];
@@ -266,6 +269,18 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
       return next;
     });
   }, [activeIndex]);
+
+  useEffect(() => {
+    if (!shouldAutoScrollRef.current) return;
+
+    const container = historyContainerRef.current;
+    if (!container) return;
+
+    requestAnimationFrame(() => {
+      container.scrollTop = container.scrollHeight;
+      shouldAutoScrollRef.current = false;
+    });
+  }, [lines]);
 
   const handleBackspace = useCallback(() => {
     setLines(prev => {
@@ -340,7 +355,7 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
         style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none', touchAction: 'manipulation' }}
       >
         <div className="w-full min-h-[120px] px-3 py-3 bg-slate-900 text-white rounded-lg">
-          <div className="max-h-44 overflow-y-auto space-y-1 pr-1">
+          <div ref={historyContainerRef} className="max-h-44 overflow-y-auto space-y-1 pr-1">
             {lines.map((line, index) => {
               const isActive = index === activeIndex;
               const canChangeOperator = index !== 0;
