@@ -214,6 +214,7 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
   const [activeIndex, setActiveIndex] = useState(0);
   const historyContainerRef = useRef<HTMLDivElement | null>(null);
   const shouldAutoScrollRef = useRef(false);
+  const audioContextRef = useRef<AudioContext | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -328,6 +329,38 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
     setActiveIndex(0);
   }, []);
 
+  const playKeypadClick = useCallback(() => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+
+      if (!audioContextRef.current) {
+        audioContextRef.current = new AudioCtx();
+      }
+
+      const ctx = audioContextRef.current;
+      if (!ctx) return;
+      if (ctx.state === 'suspended') {
+        void ctx.resume();
+      }
+
+      const oscillator = ctx.createOscillator();
+      const gainNode = ctx.createGain();
+      oscillator.type = 'sine';
+      oscillator.frequency.value = 880;
+
+      gainNode.gain.setValueAtTime(0.0001, ctx.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.03, ctx.currentTime + 0.003);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.05);
+
+      oscillator.connect(gainNode);
+      gainNode.connect(ctx.destination);
+      oscillator.start(ctx.currentTime);
+      oscillator.stop(ctx.currentTime + 0.05);
+    } catch {
+    }
+  }, []);
+
   const blockContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
   }, []);
@@ -374,6 +407,7 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
               key={token}
               type="button"
               onClick={() => {
+                playKeypadClick();
                 if (isOperationOperator(token)) {
                   handleOperator(token);
                   return;
@@ -389,10 +423,10 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
         </div>
 
         <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
-          <button type="button" onClick={handleBackspace} className="h-12 sm:h-14 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 font-black text-lg sm:text-xl active:bg-amber-100">⌫</button>
-          <button type="button" onClick={handleClearAll} className="h-12 sm:h-14 rounded-lg border border-gray-300 bg-gray-100 text-gray-700 font-black text-lg sm:text-xl active:bg-gray-200">C</button>
-          <button type="button" onClick={handleEqual} className="h-12 sm:h-14 rounded-lg border border-brand-200 bg-brand-50 text-brand-700 font-black text-xl sm:text-2xl active:bg-brand-100">=</button>
-          <button type="button" onClick={() => handleOperator('+')} className="h-12 sm:h-14 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 font-black text-xl sm:text-2xl active:bg-amber-100">+</button>
+          <button type="button" onClick={() => { playKeypadClick(); handleBackspace(); }} className="h-12 sm:h-14 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 font-black text-lg sm:text-xl active:bg-amber-100">⌫</button>
+          <button type="button" onClick={() => { playKeypadClick(); handleClearAll(); }} className="h-12 sm:h-14 rounded-lg border border-gray-300 bg-gray-100 text-gray-700 font-black text-lg sm:text-xl active:bg-gray-200">C</button>
+          <button type="button" onClick={() => { playKeypadClick(); handleEqual(); }} className="h-12 sm:h-14 rounded-lg border border-brand-200 bg-brand-50 text-brand-700 font-black text-xl sm:text-2xl active:bg-brand-100">=</button>
+          <button type="button" onClick={() => { playKeypadClick(); handleOperator('+'); }} className="h-12 sm:h-14 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 font-black text-xl sm:text-2xl active:bg-amber-100">+</button>
         </div>
 
         <Button className="w-full py-2.5 sm:py-3 text-base sm:text-lg" onClick={handleApply}>Xong</Button>
