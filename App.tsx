@@ -363,31 +363,19 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
         void ctx.resume();
       }
 
-      const mainOscillator = ctx.createOscillator();
-      const accentOscillator = ctx.createOscillator();
+      const oscillator = ctx.createOscillator();
       const gainNode = ctx.createGain();
-      const now = ctx.currentTime;
+      oscillator.type = 'sine';
+      oscillator.frequency.value = 880;
 
-      mainOscillator.type = 'triangle';
-      mainOscillator.frequency.setValueAtTime(1250, now);
-      mainOscillator.frequency.exponentialRampToValueAtTime(780, now + 0.08);
+      gainNode.gain.setValueAtTime(0.0001, ctx.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.03, ctx.currentTime + 0.003);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.05);
 
-      accentOscillator.type = 'sine';
-      accentOscillator.frequency.setValueAtTime(1800, now);
-      accentOscillator.frequency.exponentialRampToValueAtTime(1150, now + 0.05);
-
-      gainNode.gain.setValueAtTime(0.0001, now);
-      gainNode.gain.exponentialRampToValueAtTime(0.026, now + 0.003);
-      gainNode.gain.exponentialRampToValueAtTime(0.007, now + 0.04);
-      gainNode.gain.exponentialRampToValueAtTime(0.0001, now + 0.1);
-
-      mainOscillator.connect(gainNode);
-      accentOscillator.connect(gainNode);
+      oscillator.connect(gainNode);
       gainNode.connect(ctx.destination);
-      mainOscillator.start(now);
-      accentOscillator.start(now);
-      mainOscillator.stop(now + 0.1);
-      accentOscillator.stop(now + 0.07);
+      oscillator.start(ctx.currentTime);
+      oscillator.stop(ctx.currentTime + 0.05);
     } catch {
     }
   }, []);
