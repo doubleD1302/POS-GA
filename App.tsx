@@ -252,14 +252,13 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
   const handleOperator = useCallback((operator: '+') => {
     shouldAutoScrollRef.current = true;
     setLines(prev => {
-      const safeIndex = Math.min(Math.max(activeIndex, 0), Math.max(prev.length - 1, 0));
       const next = [...prev];
-      const insertIndex = safeIndex + 1;
-      next.splice(insertIndex, 0, { operator, value: '' });
+      const insertIndex = next.length;
+      next.push({ operator, value: '' });
       setActiveIndex(insertIndex);
       return next;
     });
-  }, [activeIndex]);
+  }, []);
 
   useEffect(() => {
     if (!shouldAutoScrollRef.current) return;
