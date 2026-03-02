@@ -219,7 +219,6 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
 }) {
   const [lines, setLines] = useState<OperationLine[]>([{ operator: '', value: '' }]);
   const [activeIndex, setActiveIndex] = useState(0);
-  const [confirmAction, setConfirmAction] = useState<null | 'close' | 'clear'>(null);
   const historyContainerRef = useRef<HTMLDivElement | null>(null);
   const shouldAutoScrollRef = useRef(false);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -329,49 +328,25 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
     return serializeOperationLines(lines) !== initialLinesSnapshotRef.current;
   }, [lines]);
 
-  const confirmMessage = useMemo(() => {
-    if (confirmAction === 'close') {
-      return 'Bạn chưa bấm "Xong" để lưu. Nếu thoát bây giờ, toàn bộ dữ liệu vừa nhập sẽ bị mất.';
-    }
-    if (confirmAction === 'clear') {
-      return 'Nút C sẽ xoá toàn bộ dữ liệu đang nhập trên bàn phím ảo.';
-    }
-    return '';
-  }, [confirmAction]);
-
   const handleRequestClose = useCallback(() => {
-    if (confirmAction) return;
-
     if (!hasUnsavedChanges) {
       onClose();
       return;
     }
 
-    setConfirmAction('close');
-  }, [confirmAction, hasUnsavedChanges, onClose]);
-
-  const handleClearAll = useCallback(() => {
-    if (confirmAction) return;
-    setConfirmAction('clear');
-  }, [confirmAction]);
-
-  const handleCancelConfirm = useCallback(() => {
-    setConfirmAction(null);
-  }, []);
-
-  const handleAcceptConfirm = useCallback(() => {
-    if (confirmAction === 'clear') {
-      setLines([{ operator: '', value: '' }]);
-      setActiveIndex(0);
-      setConfirmAction(null);
-      return;
-    }
-
-    if (confirmAction === 'close') {
-      setConfirmAction(null);
+    const confirmed = window.confirm('Bạn chưa bấm "Xong" để lưu. Nếu thoát ngay bây giờ, toàn bộ dữ liệu vừa nhập sẽ bị mất. Bạn có chắc muốn thoát không?');
+    if (confirmed) {
       onClose();
     }
-  }, [confirmAction, onClose]);
+  }, [hasUnsavedChanges, onClose]);
+
+  const handleClearAll = useCallback(() => {
+    const confirmed = window.confirm('Nút C sẽ xoá hết toàn bộ dữ liệu đã nhập trên máy tính. Bạn có chắc muốn xoá không?');
+    if (!confirmed) return;
+
+    setLines([{ operator: '', value: '' }]);
+    setActiveIndex(0);
+  }, []);
 
   const playKeypadClick = useCallback(() => {
     try {
@@ -471,18 +446,6 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
           <button type="button" onClick={() => { playKeypadClick(); handleClearAll(); }} className="col-span-1 h-12 sm:h-14 rounded-lg border border-gray-300 bg-gray-100 text-gray-700 font-black text-base sm:text-lg active:bg-gray-200">C</button>
           <button type="button" onClick={() => { playKeypadClick(); handleOperator('+'); }} className="col-span-1 h-12 sm:h-14 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 font-black text-xl sm:text-2xl active:bg-amber-100">+</button>
         </div>
-
-        {confirmAction && (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-3">
-            <div className="text-sm text-amber-900 font-semibold">{confirmMessage}</div>
-            <div className="grid grid-cols-2 gap-2">
-              <button type="button" onClick={handleCancelConfirm} className="h-10 rounded-lg border border-gray-300 bg-white text-gray-700 font-bold active:bg-gray-100">Huỷ</button>
-              <button type="button" onClick={handleAcceptConfirm} className="h-10 rounded-lg border border-red-300 bg-red-50 text-red-700 font-bold active:bg-red-100">
-                {confirmAction === 'close' ? 'Thoát' : 'Xoá hết'}
-              </button>
-            </div>
-          </div>
-        )}
 
         <Button className="w-full py-2.5 sm:py-3 text-base sm:text-lg" onClick={handleApply}>Xong</Button>
       </div>
