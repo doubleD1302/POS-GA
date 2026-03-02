@@ -343,8 +343,8 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
         onContextMenu={blockContextMenu}
         style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none', touchAction: 'manipulation' }}
       >
-        <div className="w-full px-3 py-3 bg-slate-900 text-white rounded-lg">
-          <div ref={historyContainerRef} className="h-[140px] overflow-y-auto space-y-1 pr-1">
+        <div className="w-full px-2.5 py-2 sm:px-3 sm:py-3 bg-slate-900 text-white rounded-lg">
+          <div ref={historyContainerRef} className="h-[96px] sm:h-[140px] overflow-y-auto space-y-1 pr-1">
             {lines.map((line, index) => {
               const isActive = index === activeIndex;
               const canChangeOperator = index !== 0;
@@ -353,22 +353,22 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
                   key={`${line.operator}-${index}`}
                   type="button"
                   onClick={() => setActiveIndex(index)}
-                  className={`w-full flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${isActive ? 'bg-brand-700/40 ring-1 ring-brand-300' : 'bg-slate-800/40 hover:bg-slate-800/70'}`}
+                  className={`w-full flex items-center justify-between gap-2 rounded-md px-2 py-1 sm:py-1.5 text-left transition-colors ${isActive ? 'bg-brand-700/40 ring-1 ring-brand-300' : 'bg-slate-800/40 hover:bg-slate-800/70'}`}
                 >
-                  <span className="text-xl font-black text-brand-200 w-6 text-center">{canChangeOperator ? line.operator || '+' : '='}</span>
-                  <span className="flex-1 text-right text-2xl font-black tracking-wide break-all">{line.value || '0'}</span>
+                  <span className="text-lg sm:text-xl font-black text-brand-200 w-6 text-center">{canChangeOperator ? line.operator || '+' : '='}</span>
+                  <span className="flex-1 text-right text-xl sm:text-2xl font-black tracking-wide break-all">{line.value || '0'}</span>
                 </button>
               );
             })}
           </div>
 
-          <div className="mt-3 pt-2 border-t border-slate-700 flex items-center justify-between gap-2">
+          <div className="mt-2 sm:mt-3 pt-2 border-t border-slate-700 flex items-center justify-between gap-2">
             <span className="text-xs uppercase tracking-wider text-slate-300 font-bold">KẾT QUẢ</span>
-            <span className="text-2xl font-black text-amber-300 break-all text-right">{runningTotalText}</span>
+            <span className="text-xl sm:text-2xl font-black text-amber-300 break-all text-right">{runningTotalText}</span>
           </div>
         </div>
 
-        <div className="grid grid-cols-4 gap-2">
+        <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
           {KEYPAD_TOKENS.map((token) => (
             <button
               key={token}
@@ -380,7 +380,7 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
                 }
                 appendToken(token);
               }}
-              className={`h-14 rounded-lg border font-black text-2xl ${token === '.' && target === 'COUNT' ? 'opacity-30 cursor-not-allowed bg-gray-100 text-gray-400 border-gray-200' : OPERATOR_TOKENS.includes(token as OperationOperator) ? 'bg-amber-50 text-amber-700 border-amber-200 active:bg-amber-100' : 'bg-white text-gray-800 border-gray-300 active:bg-brand-50'}`}
+              className={`h-12 sm:h-14 rounded-lg border font-black text-xl sm:text-2xl ${token === '.' && target === 'COUNT' ? 'opacity-30 cursor-not-allowed bg-gray-100 text-gray-400 border-gray-200' : OPERATOR_TOKENS.includes(token as OperationOperator) ? 'bg-amber-50 text-amber-700 border-amber-200 active:bg-amber-100' : 'bg-white text-gray-800 border-gray-300 active:bg-brand-50'}`}
               disabled={token === '.' && target === 'COUNT'}
             >
               {token === '*' ? '×' : token}
@@ -388,14 +388,14 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
           ))}
         </div>
 
-        <div className="grid grid-cols-4 gap-2">
-          <button type="button" onClick={handleBackspace} className="h-14 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 font-black text-xl active:bg-amber-100">⌫</button>
-          <button type="button" onClick={handleClearAll} className="h-14 rounded-lg border border-gray-300 bg-gray-100 text-gray-700 font-black text-xl active:bg-gray-200">C</button>
-          <button type="button" onClick={handleEqual} className="h-14 rounded-lg border border-brand-200 bg-brand-50 text-brand-700 font-black text-2xl active:bg-brand-100">=</button>
-          <button type="button" onClick={() => handleOperator('+')} className="h-14 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 font-black text-2xl active:bg-amber-100">+</button>
+        <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
+          <button type="button" onClick={handleBackspace} className="h-12 sm:h-14 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 font-black text-lg sm:text-xl active:bg-amber-100">⌫</button>
+          <button type="button" onClick={handleClearAll} className="h-12 sm:h-14 rounded-lg border border-gray-300 bg-gray-100 text-gray-700 font-black text-lg sm:text-xl active:bg-gray-200">C</button>
+          <button type="button" onClick={handleEqual} className="h-12 sm:h-14 rounded-lg border border-brand-200 bg-brand-50 text-brand-700 font-black text-xl sm:text-2xl active:bg-brand-100">=</button>
+          <button type="button" onClick={() => handleOperator('+')} className="h-12 sm:h-14 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 font-black text-xl sm:text-2xl active:bg-amber-100">+</button>
         </div>
 
-        <Button className="w-full py-3 text-lg" onClick={handleApply}>Xong</Button>
+        <Button className="w-full py-2.5 sm:py-3 text-base sm:text-lg" onClick={handleApply}>Xong</Button>
       </div>
     </Modal>
   );
