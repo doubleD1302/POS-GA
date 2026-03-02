@@ -441,10 +441,9 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
           ))}
         </div>
 
-        <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
+        <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
           <button type="button" onClick={() => { playKeypadClick(); handleBackspace(); }} className="col-span-2 h-12 sm:h-14 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 font-black text-lg sm:text-xl active:bg-amber-100">⌫ XÓA</button>
           <button type="button" onClick={() => { playKeypadClick(); handleClearAll(); }} className="col-span-1 h-12 sm:h-14 rounded-lg border border-gray-300 bg-gray-100 text-gray-700 font-black text-base sm:text-lg active:bg-gray-200">C</button>
-          <button type="button" onClick={() => { playKeypadClick(); handleEqual(); }} className="col-span-1 h-12 sm:h-14 rounded-lg border border-brand-200 bg-brand-50 text-brand-700 font-black text-xl sm:text-2xl active:bg-brand-100">=</button>
           <button type="button" onClick={() => { playKeypadClick(); handleOperator('+'); }} className="col-span-1 h-12 sm:h-14 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 font-black text-xl sm:text-2xl active:bg-amber-100">+</button>
         </div>
 
