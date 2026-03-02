@@ -219,6 +219,8 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
 }) {
   const [lines, setLines] = useState<OperationLine[]>([{ operator: '', value: '' }]);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [showConfirmClose, setShowConfirmClose] = useState(false);
+  const [showConfirmClear, setShowConfirmClear] = useState(false);
   const historyContainerRef = useRef<HTMLDivElement | null>(null);
   const shouldAutoScrollRef = useRef(false);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -232,6 +234,8 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
 
     setLines(safeInitialLines);
     setActiveIndex(Math.max(0, safeInitialLines.length - 1));
+    setShowConfirmClose(false);
+    setShowConfirmClear(false);
     initialLinesSnapshotRef.current = serializeOperationLines(safeInitialLines);
   }, [isOpen, initialExpression, initialLines, target]);
 
@@ -334,22 +338,11 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
       return;
     }
 
-    setTimeout(() => {
-      const confirmed = window.confirm('Bạn chưa bấm "Xong" để lưu. Nếu thoát ngay bây giờ, toàn bộ dữ liệu vừa nhập sẽ bị mất. Bạn có chắc muốn thoát không?');
-      if (confirmed) {
-        onClose();
-      }
-    }, 50);
+    setShowConfirmClose(true);
   }, [hasUnsavedChanges, onClose]);
 
   const handleClearAll = useCallback(() => {
-    setTimeout(() => {
-      const confirmed = window.confirm('Nút C sẽ xoá hết toàn bộ dữ liệu đã nhập trên máy tính. Bạn có chắc muốn xoá không?');
-      if (!confirmed) return;
-
-      setLines([{ operator: '', value: '' }]);
-      setActiveIndex(0);
-    }, 50);
+    setShowConfirmClear(true);
   }, []);
 
   const playKeypadClick = useCallback(() => {
@@ -391,14 +384,45 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
   return (
     <Modal
       isOpen={isOpen}
-      onClose={handleRequestClose}
-      title={target === 'COUNT' ? 'Nhập số con' : 'Nhập khối lượng (kg)'}
+      onClose={showConfirmClose || showConfirmClear ? () => { setShowConfirmClose(false); setShowConfirmClear(false); } : handleRequestClose}
+      title={showConfirmClose ? 'Xác nhận thoát' : showConfirmClear ? 'Xác nhận xoá' : (target === 'COUNT' ? 'Nhập số con' : 'Nhập khối lượng (kg)')}
     >
-      <div
-        className="space-y-3 select-none"
-        onContextMenu={blockContextMenu}
-        style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none', touchAction: 'manipulation' }}
-      >
+      {showConfirmClose ? (
+        <div className="py-4 space-y-6 text-center">
+          <div className="text-gray-700 text-base font-medium">
+            Bạn chưa bấm "Xong" để lưu. Nếu thoát ngay bây giờ, toàn bộ dữ liệu vừa nhập sẽ bị mất. Bạn có chắc muốn thoát không?
+          </div>
+          <div className="flex gap-3 pt-2">
+            <Button variant="secondary" className="flex-1 py-3" onClick={() => setShowConfirmClose(false)}>Quay lại</Button>
+            <Button variant="danger" className="flex-1 py-3" onClick={() => { setShowConfirmClose(false); onClose(); }}>Thoát & Xoá</Button>
+          </div>
+        </div>
+      ) : showConfirmClear ? (
+        <div className="py-4 space-y-6 text-center">
+          <div className="text-gray-700 text-base font-medium">
+            Nút C sẽ xoá hết toàn bộ dữ liệu đã nhập trên bàn phím ảo. Bạn có chắc muốn xoá không?
+          </div>
+          <div className="flex gap-3 pt-2">
+            <Button variant="secondary" className="flex-1 py-3" onClick={() => setShowConfirmClear(false)}>Quay lại</Button>
+            <Button
+              variant="danger"
+              className="flex-1 py-3"
+              onClick={() => {
+                setShowConfirmClear(false);
+                setLines([{ operator: '', value: '' }]);
+                setActiveIndex(0);
+              }}
+            >
+              Xoá hết
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div
+          className="space-y-3 select-none"
+          onContextMenu={blockContextMenu}
+          style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none', touchAction: 'manipulation' }}
+        >
         <div className="w-full px-2.5 py-2 sm:px-3 sm:py-3 bg-slate-900 text-white rounded-lg">
           <div ref={historyContainerRef} className="h-[96px] sm:h-[140px] overflow-y-auto space-y-1 pr-1">
             {lines.map((line, index) => {
@@ -453,6 +477,7 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
 
         <Button className="w-full py-2.5 sm:py-3 text-base sm:text-lg" onClick={handleApply}>Xong</Button>
       </div>
+      )}
     </Modal>
   );
 });
