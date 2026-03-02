@@ -354,8 +354,8 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
         onContextMenu={blockContextMenu}
         style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none', touchAction: 'manipulation' }}
       >
-        <div className="w-full min-h-[120px] px-3 py-3 bg-slate-900 text-white rounded-lg">
-          <div ref={historyContainerRef} className="max-h-44 overflow-y-auto space-y-1 pr-1">
+        <div className="w-full px-3 py-3 bg-slate-900 text-white rounded-lg">
+          <div ref={historyContainerRef} className="h-[140px] overflow-y-auto space-y-1 pr-1">
             {lines.map((line, index) => {
               const isActive = index === activeIndex;
               const canChangeOperator = index !== 0;
@@ -374,7 +374,7 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
           </div>
 
           <div className="mt-3 pt-2 border-t border-slate-700 flex items-center justify-between gap-2">
-            <span className="text-xs uppercase tracking-wider text-slate-300 font-bold">Running Total</span>
+            <span className="text-xs uppercase tracking-wider text-slate-300 font-bold">KẾT QUẢ</span>
             <span className="text-2xl font-black text-white break-all text-right">{runningTotalText}</span>
           </div>
         </div>
