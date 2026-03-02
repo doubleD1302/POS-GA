@@ -343,11 +343,13 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
   }, [hasUnsavedChanges, onClose]);
 
   const handleClearAll = useCallback(() => {
-    const confirmed = window.confirm('Nút C sẽ xoá hết toàn bộ dữ liệu đã nhập trên máy tính. Bạn có chắc muốn xoá không?');
-    if (!confirmed) return;
+    setTimeout(() => {
+      const confirmed = window.confirm('Nút C sẽ xoá hết toàn bộ dữ liệu đã nhập trên máy tính. Bạn có chắc muốn xoá không?');
+      if (!confirmed) return;
 
-    setLines([{ operator: '', value: '' }]);
-    setActiveIndex(0);
+      setLines([{ operator: '', value: '' }]);
+      setActiveIndex(0);
+    }, 50);
   }, []);
 
   const playKeypadClick = useCallback(() => {
