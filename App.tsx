@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import Dashboard from './pages/Dashboard';
 import POS from './pages/POS';
@@ -124,6 +124,8 @@ function ImportDetailBlock({
 }
 
 type KeypadTarget = 'WEIGHT' | 'COUNT';
+type OperationOperator = '' | '+' | '-' | '*' | '/';
+type OperationLine = { operator: OperationOperator; value: string };
 
 const evaluateMathExpression = (expression: string): number => {
   const sanitized = (expression || '').replace(/\s+/g, '');
@@ -143,6 +145,61 @@ const formatWeightValue = (value: number) => {
 };
 
 const KEYPAD_TOKENS = ['7', '8', '9', '/', '4', '5', '6', '*', '1', '2', '3', '-', '0', '.', '(', ')'];
+const OPERATOR_TOKENS: OperationOperator[] = ['+', '-', '*', '/'];
+
+const isOperationOperator = (token: string): token is Exclude<OperationOperator, ''> => {
+  return token === '+' || token === '-' || token === '*' || token === '/';
+};
+
+const buildInitialOperationLines = (initialExpression: string): OperationLine[] => {
+  const sanitized = (initialExpression || '').replace(/\s+/g, '');
+  if (!sanitized) return [{ operator: '', value: '' }];
+
+  if (!/^[0-9+\-*/.]+$/.test(sanitized)) {
+    return [{ operator: '', value: sanitized }];
+  }
+
+  const parts = sanitized.split(/([+\-*/])/).filter(Boolean);
+  if (parts.length === 0) return [{ operator: '', value: sanitized }];
+
+  const lines: OperationLine[] = [];
+  let pendingOperator: OperationOperator = '';
+  let pendingPrefix = '';
+
+  for (const part of parts) {
+    if (isOperationOperator(part)) {
+      if (lines.length === 0 && (part === '-' || part === '+')) {
+        pendingPrefix = part;
+      } else {
+        pendingOperator = part;
+      }
+      continue;
+    }
+
+    const value = `${pendingPrefix}${part}`;
+    lines.push({
+      operator: lines.length === 0 ? '' : (pendingOperator || '+'),
+      value,
+    });
+    pendingOperator = '';
+    pendingPrefix = '';
+  }
+
+  if (lines.length === 0) return [{ operator: '', value: sanitized }];
+  return lines;
+};
+
+const getExpressionFromLines = (lines: OperationLine[]) => {
+  if (!Array.isArray(lines) || lines.length === 0) return '0';
+
+  return lines
+    .map((line, index) => {
+      const normalizedValue = (line.value || '').trim() || '0';
+      if (index === 0) return normalizedValue;
+      return `${line.operator || '+'}${normalizedValue}`;
+    })
+    .join('');
+};
 
 const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
   isOpen,
@@ -157,53 +214,115 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
   onClose: () => void;
   onApply: (target: KeypadTarget, value: string) => void;
 }) {
-  const [expression, setExpression] = useState('');
+  const [lines, setLines] = useState<OperationLine[]>([{ operator: '', value: '' }]);
+  const [activeIndex, setActiveIndex] = useState(0);
 
   useEffect(() => {
     if (!isOpen) return;
-    setExpression(initialExpression || '');
+    const initialLines = buildInitialOperationLines(initialExpression);
+    setLines(initialLines);
+    setActiveIndex(Math.max(0, initialLines.length - 1));
   }, [isOpen, initialExpression, target]);
 
   const appendToken = useCallback((token: string) => {
-    setExpression(prev => {
+    setLines(prev => {
+      const safeIndex = Math.min(Math.max(activeIndex, 0), Math.max(prev.length - 1, 0));
+      const next = [...prev];
+      const current = next[safeIndex] || { operator: safeIndex === 0 ? '' : '+', value: '' };
+
       if (target === 'COUNT' && token === '.') return prev;
-      return `${prev}${token}`;
+      if (token === '.' && current.value.includes('.')) return prev;
+
+      next[safeIndex] = { ...current, value: `${current.value}${token}` };
+      return next;
     });
-  }, [target]);
+  }, [activeIndex, target]);
+
+  const handleOperator = useCallback((operator: Exclude<OperationOperator, ''>) => {
+    setLines(prev => {
+      const safeIndex = Math.min(Math.max(activeIndex, 0), Math.max(prev.length - 1, 0));
+      const next = [...prev];
+      const current = next[safeIndex] || { operator: safeIndex === 0 ? '' : '+', value: '' };
+
+      if (safeIndex === 0 && current.value === '' && operator === '-') {
+        next[safeIndex] = { ...current, value: '-' };
+        return next;
+      }
+
+      if (safeIndex === next.length - 1) {
+        if (current.value === '' && safeIndex > 0) {
+          next[safeIndex] = { ...current, operator };
+          return next;
+        }
+
+        next.push({ operator, value: '' });
+        setActiveIndex(next.length - 1);
+        return next;
+      }
+
+      if (safeIndex === 0) return next;
+
+      next[safeIndex] = { ...current, operator };
+      return next;
+    });
+  }, [activeIndex]);
 
   const handleBackspace = useCallback(() => {
-    setExpression(prev => prev.slice(0, -1));
-  }, []);
+    setLines(prev => {
+      const safeIndex = Math.min(Math.max(activeIndex, 0), Math.max(prev.length - 1, 0));
+      const next = [...prev];
+      const current = next[safeIndex] || { operator: safeIndex === 0 ? '' : '+', value: '' };
+
+      next[safeIndex] = { ...current, value: current.value.slice(0, -1) };
+      return next;
+    });
+  }, [activeIndex]);
+
+  const runningTotal = useMemo(() => {
+    const expression = getExpressionFromLines(lines);
+    return evaluateMathExpression(expression);
+  }, [lines]);
+
+  const runningTotalText = useMemo(() => {
+    if (!Number.isFinite(runningTotal)) return '--';
+    if (target === 'COUNT') return String(Math.max(0, Math.round(runningTotal)));
+    return formatWeightValue(Math.max(0, runningTotal));
+  }, [runningTotal, target]);
 
   const handleEqual = useCallback(() => {
-    const value = evaluateMathExpression(expression);
-    if (!Number.isFinite(value)) {
+    if (!Number.isFinite(runningTotal)) {
       alert('Biểu thức không hợp lệ');
       return;
     }
 
     if (target === 'COUNT') {
-      setExpression(String(Math.max(0, Math.round(value))));
+      setLines([{ operator: '', value: String(Math.max(0, Math.round(runningTotal))) }]);
+      setActiveIndex(0);
       return;
     }
 
-    setExpression(formatWeightValue(Math.max(0, value)));
-  }, [expression, target]);
+    setLines([{ operator: '', value: formatWeightValue(Math.max(0, runningTotal)) }]);
+    setActiveIndex(0);
+  }, [runningTotal, target]);
 
   const handleApply = useCallback(() => {
-    const value = evaluateMathExpression(expression);
-    if (!Number.isFinite(value)) {
+    if (!Number.isFinite(runningTotal)) {
       alert('Biểu thức không hợp lệ');
       return;
     }
 
     if (target === 'COUNT') {
-      onApply(target, String(Math.max(0, Math.round(value))));
+      onApply(target, String(Math.max(0, Math.round(runningTotal))));
       return;
     }
 
-    onApply(target, formatWeightValue(Math.max(0, value)));
-  }, [expression, onApply, target]);
+    onApply(target, formatWeightValue(Math.max(0, runningTotal)));
+  }, [onApply, runningTotal, target]);
+
+  const handleClearAll = useCallback(() => {
+    setLines([{ operator: '', value: '' }]);
+    setActiveIndex(0);
+  }, []);
 
   const blockContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -220,8 +339,29 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
         onContextMenu={blockContextMenu}
         style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none', touchAction: 'manipulation' }}
       >
-        <div className="w-full min-h-[56px] px-4 py-3 bg-slate-900 text-white rounded-lg text-3xl font-black tracking-wide text-right break-all">
-          {expression || '0'}
+        <div className="w-full min-h-[120px] px-3 py-3 bg-slate-900 text-white rounded-lg">
+          <div className="max-h-44 overflow-y-auto space-y-1 pr-1">
+            {lines.map((line, index) => {
+              const isActive = index === activeIndex;
+              const canChangeOperator = index !== 0;
+              return (
+                <button
+                  key={`${line.operator}-${index}`}
+                  type="button"
+                  onClick={() => setActiveIndex(index)}
+                  className={`w-full flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${isActive ? 'bg-brand-700/40 ring-1 ring-brand-300' : 'bg-slate-800/40 hover:bg-slate-800/70'}`}
+                >
+                  <span className="text-xl font-black text-brand-200 w-6 text-center">{canChangeOperator ? line.operator || '+' : '='}</span>
+                  <span className="flex-1 text-right text-2xl font-black tracking-wide break-all">{line.value || '0'}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mt-3 pt-2 border-t border-slate-700 flex items-center justify-between gap-2">
+            <span className="text-xs uppercase tracking-wider text-slate-300 font-bold">Running Total</span>
+            <span className="text-2xl font-black text-white break-all text-right">{runningTotalText}</span>
+          </div>
         </div>
 
         <div className="grid grid-cols-4 gap-2">
@@ -229,8 +369,14 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
             <button
               key={token}
               type="button"
-              onClick={() => appendToken(token)}
-              className={`h-14 rounded-lg border font-black text-2xl ${token === '.' && target === 'COUNT' ? 'opacity-30 cursor-not-allowed bg-gray-100 text-gray-400 border-gray-200' : 'bg-white text-gray-800 border-gray-300 active:bg-brand-50'}`}
+              onClick={() => {
+                if (isOperationOperator(token)) {
+                  handleOperator(token);
+                  return;
+                }
+                appendToken(token);
+              }}
+              className={`h-14 rounded-lg border font-black text-2xl ${token === '.' && target === 'COUNT' ? 'opacity-30 cursor-not-allowed bg-gray-100 text-gray-400 border-gray-200' : OPERATOR_TOKENS.includes(token as OperationOperator) ? 'bg-amber-50 text-amber-700 border-amber-200 active:bg-amber-100' : 'bg-white text-gray-800 border-gray-300 active:bg-brand-50'}`}
               disabled={token === '.' && target === 'COUNT'}
             >
               {token === '*' ? '×' : token}
@@ -240,9 +386,9 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
 
         <div className="grid grid-cols-4 gap-2">
           <button type="button" onClick={handleBackspace} className="h-14 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 font-black text-xl active:bg-amber-100">⌫</button>
-          <button type="button" onClick={() => setExpression('')} className="h-14 rounded-lg border border-gray-300 bg-gray-100 text-gray-700 font-black text-xl active:bg-gray-200">C</button>
+          <button type="button" onClick={handleClearAll} className="h-14 rounded-lg border border-gray-300 bg-gray-100 text-gray-700 font-black text-xl active:bg-gray-200">C</button>
           <button type="button" onClick={handleEqual} className="h-14 rounded-lg border border-brand-200 bg-brand-50 text-brand-700 font-black text-2xl active:bg-brand-100">=</button>
-          <button type="button" onClick={() => appendToken('+')} className="h-14 rounded-lg border border-gray-300 bg-white text-gray-800 font-black text-2xl active:bg-brand-50">+</button>
+          <button type="button" onClick={() => handleOperator('+')} className="h-14 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 font-black text-2xl active:bg-amber-100">+</button>
         </div>
 
         <Button className="w-full py-3 text-lg" onClick={handleApply}>Xong</Button>
