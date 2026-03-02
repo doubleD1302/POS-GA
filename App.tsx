@@ -195,6 +195,13 @@ const getExpressionFromLines = (lines: OperationLine[]) => {
     .join('');
 };
 
+const serializeOperationLines = (lines: OperationLine[]) => {
+  return JSON.stringify((lines || []).map((line, index) => ({
+    operator: index === 0 ? '' : (line.operator || '+'),
+    value: line.value || '',
+  })));
+};
+
 const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
   isOpen,
   target,
@@ -215,6 +222,7 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
   const historyContainerRef = useRef<HTMLDivElement | null>(null);
   const shouldAutoScrollRef = useRef(false);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const initialLinesSnapshotRef = useRef('[]');
 
   useEffect(() => {
     if (!isOpen) return;
@@ -224,6 +232,7 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
 
     setLines(safeInitialLines);
     setActiveIndex(Math.max(0, safeInitialLines.length - 1));
+    initialLinesSnapshotRef.current = serializeOperationLines(safeInitialLines);
   }, [isOpen, initialExpression, initialLines, target]);
 
   const appendToken = useCallback((token: string) => {
@@ -245,17 +254,9 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
     setLines(prev => {
       const safeIndex = Math.min(Math.max(activeIndex, 0), Math.max(prev.length - 1, 0));
       const next = [...prev];
-      const current = next[safeIndex] || { operator: safeIndex === 0 ? '' : '+', value: '' };
-
-      if (safeIndex === next.length - 1) {
-        next.push({ operator, value: '' });
-        setActiveIndex(next.length - 1);
-        return next;
-      }
-
-      if (safeIndex === 0) return next;
-
-      next[safeIndex] = { ...current, operator };
+      const insertIndex = safeIndex + 1;
+      next.splice(insertIndex, 0, { operator, value: '' });
+      setActiveIndex(insertIndex);
       return next;
     });
   }, [activeIndex]);
@@ -324,7 +325,26 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
     onApply(target, formatWeightValue(Math.max(0, runningTotal)), lines.map(line => ({ ...line })));
   }, [lines, onApply, runningTotal, target]);
 
+  const hasUnsavedChanges = useMemo(() => {
+    return serializeOperationLines(lines) !== initialLinesSnapshotRef.current;
+  }, [lines]);
+
+  const handleRequestClose = useCallback(() => {
+    if (!hasUnsavedChanges) {
+      onClose();
+      return;
+    }
+
+    const confirmed = window.confirm('Bạn chưa bấm "Xong" để lưu. Nếu thoát ngay bây giờ, toàn bộ dữ liệu vừa nhập sẽ bị mất. Bạn có chắc muốn thoát không?');
+    if (confirmed) {
+      onClose();
+    }
+  }, [hasUnsavedChanges, onClose]);
+
   const handleClearAll = useCallback(() => {
+    const confirmed = window.confirm('Nút C sẽ xoá hết toàn bộ dữ liệu đã nhập trên bàn phím ảo. Bạn có chắc muốn xoá không?');
+    if (!confirmed) return;
+
     setLines([{ operator: '', value: '' }]);
     setActiveIndex(0);
   }, []);
@@ -368,7 +388,7 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
   return (
     <Modal
       isOpen={isOpen}
-      onClose={onClose}
+      onClose={handleRequestClose}
       title={target === 'COUNT' ? 'Nhập số con' : 'Nhập khối lượng (kg)'}
     >
       <div
@@ -422,11 +442,11 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
           ))}
         </div>
 
-        <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
-          <button type="button" onClick={() => { playKeypadClick(); handleBackspace(); }} className="h-12 sm:h-14 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 font-black text-lg sm:text-xl active:bg-amber-100">⌫</button>
-          <button type="button" onClick={() => { playKeypadClick(); handleClearAll(); }} className="h-12 sm:h-14 rounded-lg border border-gray-300 bg-gray-100 text-gray-700 font-black text-lg sm:text-xl active:bg-gray-200">C</button>
-          <button type="button" onClick={() => { playKeypadClick(); handleEqual(); }} className="h-12 sm:h-14 rounded-lg border border-brand-200 bg-brand-50 text-brand-700 font-black text-xl sm:text-2xl active:bg-brand-100">=</button>
-          <button type="button" onClick={() => { playKeypadClick(); handleOperator('+'); }} className="h-12 sm:h-14 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 font-black text-xl sm:text-2xl active:bg-amber-100">+</button>
+        <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
+          <button type="button" onClick={() => { playKeypadClick(); handleBackspace(); }} className="col-span-2 h-12 sm:h-14 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 font-black text-lg sm:text-xl active:bg-amber-100">⌫ XÓA</button>
+          <button type="button" onClick={() => { playKeypadClick(); handleClearAll(); }} className="col-span-1 h-12 sm:h-14 rounded-lg border border-gray-300 bg-gray-100 text-gray-700 font-black text-base sm:text-lg active:bg-gray-200">C</button>
+          <button type="button" onClick={() => { playKeypadClick(); handleEqual(); }} className="col-span-1 h-12 sm:h-14 rounded-lg border border-brand-200 bg-brand-50 text-brand-700 font-black text-xl sm:text-2xl active:bg-brand-100">=</button>
+          <button type="button" onClick={() => { playKeypadClick(); handleOperator('+'); }} className="col-span-1 h-12 sm:h-14 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 font-black text-xl sm:text-2xl active:bg-amber-100">+</button>
         </div>
 
         <Button className="w-full py-2.5 sm:py-3 text-base sm:text-lg" onClick={handleApply}>Xong</Button>
