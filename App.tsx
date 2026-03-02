@@ -126,6 +126,16 @@ function ImportDetailBlock({
 type KeypadTarget = 'WEIGHT' | 'COUNT';
 type OperationOperator = '' | '+' | '-' | '*' | '/';
 type OperationLine = { operator: OperationOperator; value: string };
+type KeypadHistoryEntry = {
+  id: string;
+  target: KeypadTarget;
+  createdAt: string;
+  result: string;
+  lines: OperationLine[];
+};
+
+const KEYPAD_HISTORY_STORAGE_KEY = 'gttd_virtual_keypad_history_v1';
+const MAX_KEYPAD_HISTORY_ITEMS = 25;
 
 const evaluateMathExpression = (expression: string): number => {
   const sanitized = (expression || '').replace(/\s+/g, '');
@@ -210,6 +220,7 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
 }) {
   const [lines, setLines] = useState<OperationLine[]>([{ operator: '', value: '' }]);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [historyEntries, setHistoryEntries] = useState<KeypadHistoryEntry[]>([]);
   const historyContainerRef = useRef<HTMLDivElement | null>(null);
   const shouldAutoScrollRef = useRef(false);
 
@@ -219,6 +230,42 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
     setLines(initialLines);
     setActiveIndex(Math.max(0, initialLines.length - 1));
   }, [isOpen, initialExpression, target]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(KEYPAD_HISTORY_STORAGE_KEY);
+      if (!raw) {
+        setHistoryEntries([]);
+        return;
+      }
+
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) {
+        setHistoryEntries([]);
+        return;
+      }
+
+      const normalized = parsed.filter((entry) => (
+        entry
+        && (entry.target === 'WEIGHT' || entry.target === 'COUNT')
+        && typeof entry.result === 'string'
+        && typeof entry.createdAt === 'string'
+        && Array.isArray(entry.lines)
+      ));
+
+      setHistoryEntries(normalized);
+    } catch {
+      setHistoryEntries([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(KEYPAD_HISTORY_STORAGE_KEY, JSON.stringify(historyEntries));
+    } catch {
+      return;
+    }
+  }, [historyEntries]);
 
   const appendToken = useCallback((token: string) => {
     setLines(prev => {
@@ -288,6 +335,42 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
     return formatWeightValue(Math.max(0, runningTotal));
   }, [runningTotal, target]);
 
+  const targetHistoryEntries = useMemo(
+    () => historyEntries.filter(entry => entry.target === target),
+    [historyEntries, target],
+  );
+
+  const formatHistoryTime = useCallback((value: string) => {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleString('vi-VN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+  }, []);
+
+  const handleReuseHistory = useCallback((entry: KeypadHistoryEntry) => {
+    const clonedLines = entry.lines.map(line => ({
+      operator: line.operator,
+      value: line.value,
+    }));
+
+    if (clonedLines.length === 0) {
+      setLines([{ operator: '', value: '' }]);
+      setActiveIndex(0);
+      return;
+    }
+
+    setLines(clonedLines);
+    setActiveIndex(clonedLines.length - 1);
+    shouldAutoScrollRef.current = true;
+  }, []);
+
   const handleEqual = useCallback(() => {
     if (!Number.isFinite(runningTotal)) {
       alert('Biểu thức không hợp lệ');
@@ -310,13 +393,27 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
       return;
     }
 
+    const finalValue = target === 'COUNT'
+      ? String(Math.max(0, Math.round(runningTotal)))
+      : formatWeightValue(Math.max(0, runningTotal));
+
+    const historyEntry: KeypadHistoryEntry = {
+      id: `keypad-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      target,
+      createdAt: new Date().toISOString(),
+      result: finalValue,
+      lines: lines.map(line => ({ operator: line.operator, value: line.value })),
+    };
+
+    setHistoryEntries(prev => [historyEntry, ...prev].slice(0, MAX_KEYPAD_HISTORY_ITEMS));
+
     if (target === 'COUNT') {
-      onApply(target, String(Math.max(0, Math.round(runningTotal))));
+      onApply(target, finalValue);
       return;
     }
 
-    onApply(target, formatWeightValue(Math.max(0, runningTotal)));
-  }, [onApply, runningTotal, target]);
+    onApply(target, finalValue);
+  }, [lines, onApply, runningTotal, target]);
 
   const handleClearAll = useCallback(() => {
     setLines([{ operator: '', value: '' }]);
@@ -388,6 +485,34 @@ const VirtualKeypadModal = React.memo(function VirtualKeypadModal({
           <button type="button" onClick={handleClearAll} className="h-14 rounded-lg border border-gray-300 bg-gray-100 text-gray-700 font-black text-xl active:bg-gray-200">C</button>
           <button type="button" onClick={handleEqual} className="h-14 rounded-lg border border-brand-200 bg-brand-50 text-brand-700 font-black text-2xl active:bg-brand-100">=</button>
           <button type="button" onClick={() => handleOperator('+')} className="h-14 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 font-black text-2xl active:bg-amber-100">+</button>
+        </div>
+
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
+          <div className="text-[11px] font-bold text-slate-600 uppercase tracking-wide mb-2">Lịch sử nhập liệu</div>
+          <div className="max-h-36 overflow-y-auto space-y-2">
+            {targetHistoryEntries.length === 0 ? (
+              <div className="text-xs text-slate-500">Chưa có lịch sử nhập liệu.</div>
+            ) : (
+              targetHistoryEntries.map((entry) => (
+                <div key={entry.id} className="rounded-md border border-slate-200 bg-white p-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <div className="text-[11px] text-slate-500">{formatHistoryTime(entry.createdAt)}</div>
+                      <div className="text-sm font-bold text-amber-600">Kết quả: {entry.result}</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleReuseHistory(entry)}
+                      className="px-2 py-1 text-xs font-bold rounded border border-brand-200 bg-brand-50 text-brand-700 active:bg-brand-100"
+                    >
+                      Dùng lại
+                    </button>
+                  </div>
+                  <div className="mt-1 text-[11px] text-slate-500 break-all">{getExpressionFromLines(entry.lines)}</div>
+                </div>
+              ))
+            )}
+          </div>
         </div>
 
         <Button className="w-full py-3 text-lg" onClick={handleApply}>Xong</Button>
